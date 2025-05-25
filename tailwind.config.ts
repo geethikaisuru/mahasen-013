@@ -10,6 +10,7 @@ export default {
   theme: {
   	extend: {
   		colors: {
+        'muted-green': '#81C784', // Added muted green
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
   			card: {
