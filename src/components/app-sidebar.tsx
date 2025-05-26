@@ -1,3 +1,4 @@
+
 "use client";
 
 import Link from 'next/link';
@@ -12,25 +13,28 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarTrigger,
+  // SidebarTrigger, // This trigger is typically for mobile sheet, explicit desktop toggle added
 } from '@/components/ui/sidebar';
 import { UserNav } from '@/components/user-nav';
 import { Logo } from '@/components/logo';
 import { Separator } from '@/components/ui/separator';
 import { Button } from './ui/button';
-import { PanelLeftClose, PanelRightClose } from 'lucide-react';
-import { useSidebar } from '@/components/ui/sidebar'; // Ensure this hook is correctly imported
+import { PanelLeftClose, PanelRightClose, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { useSidebar } from '@/components/ui/sidebar'; 
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { open, toggleSidebar, isMobile } = useSidebar();
+  const { open, toggleSidebar, isMobile, state } = useSidebar();
 
   return (
     <Sidebar side="left" variant="sidebar" collapsible="icon" className="border-r">
       <SidebarHeader className="p-4 flex items-center justify-between">
         <Logo iconOnly={!open && !isMobile} />
-         <Button variant="ghost" size="icon" onClick={toggleSidebar} className="md:hidden">
-            {open ? <PanelLeftClose /> : <PanelRightClose />}
+         <Button variant="ghost" size="icon" onClick={toggleSidebar} className="md:hidden"> {/* Mobile toggle */}
+            {open || state === 'expanded' ? <PanelLeftClose /> : <PanelRightClose />}
+        </Button>
+        <Button variant="ghost" size="icon" onClick={toggleSidebar} className="hidden md:flex"> {/* Desktop toggle */}
+            {open || state === 'expanded' ? <ChevronsLeft className="h-5 w-5" /> : <ChevronsRight className="h-5 w-5" />}
         </Button>
       </SidebarHeader>
       <Separator />
@@ -56,15 +60,19 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarContent>
       <Separator />
-      <SidebarFooter className={cn("p-4 flex items-center", open || isMobile ? "justify-between" : "justify-center")}>
-        <div className={cn(open || isMobile ? "block" : "hidden group-data-[collapsible=icon]:hidden")}>
+      <SidebarFooter className={cn(
+        "p-4 flex items-center", 
+        (open || isMobile) ? "justify-between" : "justify-center group-data-[collapsible=icon]:justify-center"
+        )}>
+        <div className={cn((open || isMobile) ? "block" : "hidden group-data-[collapsible=icon]:hidden")}>
            <UserNav />
         </div>
-         <div className={cn(open || isMobile ? "hidden" : "block")}>
-          {/* Icon-only version of UserNav or a simple avatar when collapsed */}
+         {/* For collapsed icon-only sidebar, UserNav itself handles avatar display */}
+        <div className={cn("group-data-[collapsible=icon]:block", (open || isMobile) ? "hidden" : "block")}>
            <UserNav /> 
         </div>
       </SidebarFooter>
     </Sidebar>
   );
 }
+
