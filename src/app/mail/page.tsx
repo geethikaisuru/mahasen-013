@@ -1,30 +1,34 @@
 
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useCallback } from "react";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import type { Email, EmailBoxType } from "@/types/mail";
-import { fetchEmails, sendEmail, markEmailAsRead as apiMarkEmailAsRead } from "@/services/gmail"; // Mocked service
+import { fetchEmails, sendEmail, markEmailAsRead as apiMarkEmailAsRead, getEmailById } from "@/services/gmail";
 import { handleGenerateEmailDrafts, handleRegenerateEmailDrafts } from "@/app/actions";
 import type { GenerateEmailDraftsInput } from "@/ai/flows/generate-email-drafts";
+import { useAuth } from "@/contexts/auth-context";
 
 import { MailSidebar } from "./components/mail-sidebar";
 import { EmailList } from "./components/email-list";
 import { EmailDetailView } from "./components/email-detail-view";
 import { DraftSummaryCard } from "./components/draft-summary-card";
 import { MainReplyComposer } from "./components/main-reply-composer";
-import { ChatView } from "./components/chat-view"; // Keep ChatView as per original layout
+import { ChatView } from "./components/chat-view";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
-// Initial context - in a real app, this might be fetched or stored globally
+
 const initialUserContext = "I am a busy professional. I prefer concise and direct communication. Today is " + new Date().toLocaleDateString() + ".";
 
 export default function MailPage() {
+  const { currentUser, googleAccessToken, loading: authLoading } = useAuth();
   const [currentEmailBox, setCurrentEmailBox] = useState<EmailBoxType | "all">("inbox");
   const [emails, setEmails] = useState<Email[]>([]);
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [isFetchingFullEmail, setIsFetchingFullEmail] = useState(false);
   const [generatedDrafts, setGeneratedDrafts] = useState<string[]>([]);
   const [activeReplyContent, setActiveReplyContent] = useState("");
   const [userContextForAI, setUserContextForAI] = useState(initialUserContext);
@@ -36,39 +40,72 @@ export default function MailPage() {
 
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadEmails(currentEmailBox);
-  }, [currentEmailBox]);
-
-  const loadEmails = (boxType: EmailBoxType | "all") => {
+  const loadEmails = useCallback((boxType: EmailBoxType | "all") => {
+    if (!googleAccessToken) {
+      setEmails([]);
+      if (!authLoading && currentUser) { // User is logged in but no access token (should not happen often)
+         toast({ title: "Authentication Issue", description: "Missing Google Access Token. Please try signing out and in.", variant: "destructive" });
+      }
+      return;
+    }
     startEmailLoadingTransition(async () => {
-      setSelectedEmail(null); // Reset selection when changing box
+      setSelectedEmail(null);
       setGeneratedDrafts([]);
       setActiveReplyContent("");
       try {
-        // For "all", we just use "inbox" from mock service
-        const fetchedEmails = await fetchEmails(boxType === "all" ? "inbox" : boxType); 
+        const fetchedEmails = await fetchEmails(googleAccessToken, boxType === "all" ? "inbox" : boxType); 
         setEmails(fetchedEmails);
       } catch (error) {
-        toast({ title: "Error", description: "Failed to load emails.", variant: "destructive" });
+        toast({ title: "Error Loading Emails", description: (error as Error).message || "Failed to load emails.", variant: "destructive" });
         setEmails([]);
       }
     });
-  };
+  }, [googleAccessToken, toast, authLoading, currentUser]);
+
+  useEffect(() => {
+    if (currentUser && googleAccessToken) {
+      loadEmails(currentEmailBox);
+    } else if (!authLoading && !currentUser) {
+      // Clear emails if user logs out
+      setEmails([]);
+      setSelectedEmail(null);
+      setGeneratedDrafts([]);
+    }
+  }, [currentEmailBox, currentUser, googleAccessToken, loadEmails, authLoading]);
 
   const handleSelectEmail = async (email: Email) => {
-    setSelectedEmail(email);
+    if (!googleAccessToken) {
+      toast({ title: "Authentication Issue", description: "Cannot fetch email details. Missing Google Access Token.", variant: "destructive" });
+      return;
+    }
+    setSelectedEmail(email); // Show metadata immediately
     setGeneratedDrafts([]);
     setActiveReplyContent("");
-    if (!email.read) {
-      await apiMarkEmailAsRead(email.id);
-      // Optimistically update read status or re-fetch
-      setEmails(prev => prev.map(e => e.id === email.id ? {...e, read: true} : e));
+    setIsFetchingFullEmail(true);
+
+    try {
+      const fullEmail = await getEmailById(googleAccessToken, email.id);
+      if (fullEmail) {
+        setSelectedEmail(fullEmail); // Update with full body
+        if (!fullEmail.read) {
+          await apiMarkEmailAsRead(googleAccessToken, email.id);
+          setEmails(prev => prev.map(e => e.id === email.id ? {...fullEmail, read: true} : e));
+        }
+      } else {
+        toast({ title: "Error", description: "Could not fetch email details.", variant: "destructive" });
+      }
+    } catch (error) {
+      toast({ title: "Error Fetching Email", description: (error as Error).message, variant: "destructive" });
+    } finally {
+      setIsFetchingFullEmail(false);
     }
   };
 
   const handleGenerateInitialDrafts = () => {
-    if (!selectedEmail) return;
+    if (!selectedEmail || !selectedEmail.body) { // Ensure body is loaded
+      toast({ title: "Error", description: "Email content not fully loaded or empty.", variant: "destructive" });
+      return;
+    }
     startDraftGenerationTransition(async () => {
       const input: GenerateEmailDraftsInput = { emailContent: selectedEmail.body, userContext: userContextForAI };
       const result = await handleGenerateEmailDrafts(input);
@@ -95,19 +132,20 @@ export default function MailPage() {
   };
 
   const handleRegenerateInComposer = () => {
-    if (!selectedEmail) return;
+    if (!selectedEmail || !selectedEmail.body) {
+       toast({ title: "Error", description: "Original email content not fully loaded or empty.", variant: "destructive" });
+      return;
+    }
     startRegenerationTransition(async () => {
       const input: GenerateEmailDraftsInput = { emailContent: selectedEmail.body, userContext: userContextForAI };
-      const result = await handleRegenerateEmailDrafts(input); // Uses the same input type as generate
+      const result = await handleRegenerateEmailDrafts(input);
        if ("error" in result || !result.draftReplies) {
         toast({ title: "Error Regenerating Drafts", description: (result as any).error || "Failed to regenerate drafts.", variant: "destructive" });
-        // Optionally update generatedDrafts with error messages or keep old ones
         const errorDrafts = (result.draftReplies as [string,string,string]) || generatedDrafts.map(() => "Error regenerating.") as [string,string,string];
-        setGeneratedDrafts(errorDrafts.slice(0,3)); // Ensure it's 3
+        setGeneratedDrafts(errorDrafts.slice(0,3));
       } else {
-        setGeneratedDrafts(result.draftReplies.slice(0,3) as [string, string, string]); // Ensure it's 3 drafts
+        setGeneratedDrafts(result.draftReplies.slice(0,3) as [string, string, string]);
         toast({ title: "Drafts Regenerated", description: "Successfully regenerated 3 email drafts." });
-        // Optionally, select the first new draft for the composer
         if (result.draftReplies.length > 0) {
           setActiveReplyContent(result.draftReplies[0]);
         }
@@ -116,17 +154,23 @@ export default function MailPage() {
   };
 
   const handleSendReply = () => {
-    if (!selectedEmail || !activeReplyContent.trim()) return;
+    if (!selectedEmail || !activeReplyContent.trim() || !googleAccessToken) {
+      toast({ title: "Error", description: "Cannot send reply. Check login, email selection, or content.", variant: "destructive" });
+      return;
+    }
     startSendingTransition(async () => {
       try {
-        await sendEmail(selectedEmail.senderEmail, `Re: ${selectedEmail.subject}`, activeReplyContent, selectedEmail.id);
-        toast({ title: "Email Sent (Mock)", description: "Your reply has been sent." });
+        // Extract Message-ID and References from original email headers for proper threading
+        // This part is complex and depends on exact header parsing in getEmailById
+        // For simplicity, we're not fully implementing threading headers here, Gmail might thread by subject.
+        await sendEmail(googleAccessToken, selectedEmail.senderEmail, `Re: ${selectedEmail.subject}`, activeReplyContent);
+        toast({ title: "Email Sent", description: "Your reply has been sent via Gmail." });
         setActiveReplyContent("");
         setGeneratedDrafts([]);
-        setSelectedEmail(null); // Go back to list or handle next step
+        // setSelectedEmail(null); // Optionally clear selection
         loadEmails(currentEmailBox); // Refresh email list
       } catch (error) {
-        toast({ title: "Error Sending Email", description: "Failed to send the reply.", variant: "destructive" });
+        toast({ title: "Error Sending Email", description: (error as Error).message || "Failed to send the reply.", variant: "destructive" });
       }
     });
   };
@@ -141,24 +185,58 @@ export default function MailPage() {
     };
     return titles[currentEmailBox];
   };
+  
+  if (authLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="mt-4 text-muted-foreground">Loading authentication...</p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center">
+        <Mail className="h-16 w-16 text-primary mb-4" />
+        <h2 className="text-2xl font-semibold mb-2">Welcome to Mail Assistant</h2>
+        <p className="text-muted-foreground mb-6">Please sign in with your Google account to access your emails and use AI features.</p>
+        {/* The sign-in button is in UserNav, typically in the header/sidebar */}
+        <p className="text-sm text-muted-foreground">If you don't see a sign-in option, check the top-right corner or sidebar.</p>
+      </div>
+    );
+  }
+  
+  if (!googleAccessToken && currentUser) {
+     return (
+      <div className="flex flex-col items-center justify-center h-full text-center p-4">
+        <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+        <h2 className="text-xl font-semibold mb-2">Authentication Token Missing</h2>
+        <p className="text-muted-foreground mb-4">
+          We couldn't retrieve the necessary Google Access Token after sign-in. This can happen if permissions were not fully granted or due to a temporary issue.
+        </p>
+        <p className="text-muted-foreground mb-6">Please try signing out and signing back in. Ensure you grant all requested permissions.</p>
+        {/* UserNav component (which includes sign-out) should be accessible */}
+      </div>
+    );
+  }
+
 
   return (
     <div className="flex flex-col gap-6 h-full">
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Mail Assistant</h1>
         <p className="text-muted-foreground">
-          Craft thoughtful email replies with the help of AI. (Gmail API is currently mocked)
+          View your Gmail inbox and craft replies with AI.
         </p>
       </div>
       <Separator />
 
       <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[240px_minmax(300px,1fr)_400px] gap-6 flex-grow min-h-0">
-        {/* Mail Sidebar */}
         <div className="hidden md:block">
            <MailSidebar onSelectBox={setCurrentEmailBox} activeBox={currentEmailBox} />
         </div>
 
-        {/* Email List */}
         <div className="min-h-[400px] md:min-h-0">
           <EmailList
             emails={emails}
@@ -169,17 +247,22 @@ export default function MailPage() {
           />
         </div>
 
-        {/* Main Content Area: Email Detail / Drafts / Composer & Chat */}
-        <div className="lg:col-span-1 space-y-6 overflow-y-auto pr-2"> {/* Ensure this column can scroll if content overflows */}
-           {!selectedEmail && (
-             <Card className="shadow-md h-full flex items-center justify-center">
+        <div className="lg:col-span-1 space-y-6 overflow-y-auto pr-2">
+           {!selectedEmail && !isLoadingEmails && (
+             <Card className="shadow-md h-full flex items-center justify-center min-h-[300px]">
                <CardContent className="p-6 text-center text-muted-foreground">
                  <p>Select an email from the list to view its content and generate replies.</p>
                </CardContent>
              </Card>
            )}
+           {isFetchingFullEmail && (
+              <div className="flex items-center justify-center p-8">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="ml-2 text-muted-foreground">Loading email content...</p>
+              </div>
+            )}
 
-          {selectedEmail && (
+          {selectedEmail && !isFetchingFullEmail && (
             <EmailDetailView
               email={selectedEmail}
               onGenerateDrafts={handleGenerateInitialDrafts}
@@ -220,7 +303,7 @@ export default function MailPage() {
             </div>
           )}
 
-          {(selectedEmail || activeReplyContent) && ( // Show composer if email selected (for context) or if reply started
+          {(selectedEmail || activeReplyContent) && !isFetchingFullEmail && (
             <div className="mt-6">
               <MainReplyComposer
                 replyContent={activeReplyContent}
@@ -236,7 +319,6 @@ export default function MailPage() {
           )}
         </div>
         
-        {/* Chat View - kept in the layout as per original design for lg screens */}
          <div className="hidden lg:block lg:col-start-3 min-h-[600px]">
            <ChatView />
          </div>

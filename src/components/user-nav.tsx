@@ -20,7 +20,7 @@ import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { useToast } from "@/hooks/use-toast";
 
 export function UserNav() {
-  const { currentUser, loading } = useAuth();
+  const { currentUser, loading, setGoogleAccessToken } = useAuth();
   const { toast } = useToast();
 
   const handleSignIn = async () => {
@@ -31,7 +31,20 @@ export function UserNav() {
     provider.addScope('https://www.googleapis.com/auth/calendar'); // Full access to Google Calendar
     
     try {
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const token = credential?.accessToken;
+      if (token) {
+        setGoogleAccessToken(token);
+      } else {
+        setGoogleAccessToken(null);
+        console.error("Google OAuth access token not found after sign-in.");
+        toast({
+          title: "Sign In Warning",
+          description: "Could not retrieve Google access token. Some features might not work.",
+          variant: "destructive",
+        });
+      }
       toast({
         title: "Signed In",
         description: "Successfully signed in with Google and requested additional permissions.",
@@ -39,6 +52,7 @@ export function UserNav() {
       });
     } catch (error) {
       console.error("Error signing in with Google: ", error);
+      setGoogleAccessToken(null);
       toast({
         title: "Sign In Failed",
         description: (error as Error).message || "An unexpected error occurred.",
@@ -50,6 +64,7 @@ export function UserNav() {
   const handleSignOut = async () => {
     try {
       await signOut(auth);
+      setGoogleAccessToken(null); // Clear the access token
       toast({
         title: "Signed Out",
         description: "Successfully signed out.",
@@ -132,11 +147,6 @@ export function UserNav() {
               <span>Settings</span>
             </Link>
           </DropdownMenuItem>
-          {/* Support link can be to a static page or external service */}
-          {/* <DropdownMenuItem>
-            <LifeBuoy className="mr-2 h-4 w-4" />
-            <span>Support</span>
-          </DropdownMenuItem> */}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut}>
