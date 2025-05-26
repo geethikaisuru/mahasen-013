@@ -1,3 +1,4 @@
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
@@ -27,7 +28,7 @@ export function EmailDisplay({ sender, senderEmail, subject, body, receivedTime 
         </div>
       </CardHeader>
       <CardContent>
-        <div className="prose prose-sm max-w-none text-foreground dark:prose-invert whitespace-pre-wrap">
+        <div className="prose prose-sm max-w-none text-foreground dark:prose-invert whitespace-pre-wrap overflow-x-auto">
           {body}
         </div>
       </CardContent>
