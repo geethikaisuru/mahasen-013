@@ -20,7 +20,7 @@ interface GmailMessagePart {
   mimeType: string;
   filename: string;
   headers: GmailHeader[];
-  body?: GmailMessagePartBody; // Made body optional as per some API responses for list
+  body?: GmailMessagePartBody;
   parts?: GmailMessagePart[];
 }
 
@@ -54,7 +54,7 @@ async function makeGmailApiCall<T>(
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: 'Unknown API error (failed to parse error JSON)' }));
+    const errorData = await response.json().catch(() => ({ error: { message: 'Unknown API error (failed to parse error JSON)' } }));
     console.error(`[GmailService] API Error: ${response.status} ${response.statusText} for ${method} ${endpoint}. Response:`, errorData);
     throw new Error(errorData.error?.message || `Gmail API request failed: ${response.status}`);
   }
@@ -76,7 +76,7 @@ function base64UrlToBase64(base64Url: string): string {
   return base64;
 }
 
-function parseMessageBody(payload?: GmailMessagePart): string {
+function parseMessageBodyContent(payload?: GmailMessagePart): string {
   if (!payload) return '';
 
   let bodyData = '';
@@ -87,36 +87,30 @@ function parseMessageBody(payload?: GmailMessagePart): string {
       return currentPart;
     }
     if (currentPart.mimeType === 'text/html' && currentPart.body?.data) {
-      // Prefer plain text if available, but take HTML if it's the only option
-      // This function will be called recursively; plain text is prioritized at each level.
+      // Placeholder - will be chosen if no plain text found at this level or deeper
     }
 
     if (currentPart.parts && currentPart.parts.length > 0) {
-      // Prioritize text/plain from parts
       const plainTextPart = currentPart.parts.find(p => p.mimeType === 'text/plain' && p.body?.data);
       if (plainTextPart) return plainTextPart;
 
-      // Recurse into multipart/* parts
       for (const subPart of currentPart.parts) {
         if (subPart.mimeType.startsWith('multipart/')) {
           const foundInSubPart = findBodyPart(subPart);
-          if (foundInSubPart && foundInSubPart.mimeType === 'text/plain') return foundInSubPart; // Found plain, good.
+          if (foundInSubPart?.mimeType === 'text/plain') return foundInSubPart;
         }
       }
       
-      // If no plain text found in direct parts or multipart/*, try HTML from direct parts
       const htmlPart = currentPart.parts.find(p => p.mimeType === 'text/html' && p.body?.data);
       if (htmlPart) return htmlPart;
       
-      // If still nothing, try to find HTML in nested multipart/* parts
-       for (const subPart of currentPart.parts) {
+      for (const subPart of currentPart.parts) {
         if (subPart.mimeType.startsWith('multipart/')) {
           const foundInSubPart = findBodyPart(subPart);
-          if (foundInSubPart && foundInSubPart.mimeType === 'text/html') return foundInSubPart;
+          if (foundInSubPart?.mimeType === 'text/html') return foundInSubPart;
         }
       }
     }
-    // If the current part itself is HTML and no plain text was found in its children
     if (currentPart.mimeType === 'text/html' && currentPart.body?.data) {
         return currentPart;
     }
@@ -132,7 +126,6 @@ function parseMessageBody(payload?: GmailMessagePart): string {
     bodyData = payload.body.data;
     bodyMimeType = payload.mimeType;
   }
-
 
   if (!bodyData) {
     return '';
@@ -154,19 +147,19 @@ function parseMessageBody(payload?: GmailMessagePart): string {
         const doc = parser.parseFromString(decodedBody, "text/html");
         return doc.body.textContent || "";
       } catch (e) {
+        console.warn("[GmailService] DOMParser failed for HTML body, falling back to regex stripping:", e);
         return decodedBody.replace(/<[^>]*>?/gm, '').replace(/\s+/g, ' ').trim();
       }
     } else {
       return decodedBody.replace(/<[^>]*>?/gm, '').replace(/\s+/g, ' ').trim();
     }
   }
-  
   return decodedBody.replace(/\r\n/g, '\n').trim();
 }
 
 
-function mapGmailMessageToEmail(message: GmailMessage, isFullMessage = false): Email {
-  if (!message || !message.id) {
+function mapGmailMessageToEmail(message: GmailMessage, parseBody: boolean): Email {
+   if (!message || !message.id) {
     console.warn('[GmailService] mapGmailMessageToEmail - Received invalid or incomplete message object:', message);
     return {
       id: 'unknown-id-' + Math.random().toString(36).substring(2, 9),
@@ -182,15 +175,6 @@ function mapGmailMessageToEmail(message: GmailMessage, isFullMessage = false): E
 
   const headers = message.payload?.headers || [];
 
-  if (!isFullMessage) { // Logging for list view processing
-    // console.log(`[GmailService] mapGmailMessageToEmail (LIST VIEW ID: ${message.id}) - Raw message:`, JSON.stringify(message));
-    if (!message.payload) {
-      // console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW ID: ${message.id}) - Message has no payload object.`);
-    } else if (!headers.length) {
-      // console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW ID: ${message.id}) - Payload exists but has no headers array or it's empty. Payload:`, JSON.stringify(message.payload));
-    }
-  }
-
   const fromHeaderRaw = getHeader(headers, 'From');
   let senderName = 'Unknown Sender';
   let senderEmail = 'unknown@example.com';
@@ -200,25 +184,23 @@ function mapGmailMessageToEmail(message: GmailMessage, isFullMessage = false): E
     if (emailMatch && emailMatch[1]) {
       senderEmail = emailMatch[1].trim();
       const namePart = fromHeaderRaw.substring(0, emailMatch.index).trim();
-      senderName = namePart.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1').trim();
-      if (!senderName && senderEmail) senderName = senderEmail.split('@')[0]; // Fallback if name part is empty
+      senderName = namePart.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1').trim() || senderEmail.split('@')[0];
     } else if (fromHeaderRaw.includes('@')) { 
       senderEmail = fromHeaderRaw.trim();
       senderName = senderEmail.split('@')[0];
     } else if (fromHeaderRaw.trim()) {
       senderName = fromHeaderRaw.trim(); 
     }
-  } else if (!isFullMessage) {
-    // console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW ID: ${message.id}) - 'From' header missing.`);
+  } else {
+     // console.warn(`[GmailService] mapGmailMessageToEmail (ID: ${message.id}, ParseBody: ${parseBody}) - 'From' header missing.`);
   }
-  if (!senderName && senderEmail !== 'unknown@example.com') senderName = senderEmail.split('@')[0];
-  if (!senderName) senderName = "Unknown Sender";
-
+   if (!senderName && senderEmail !== 'unknown@example.com') senderName = senderEmail.split('@')[0];
+   if (!senderName) senderName = "Unknown Sender";
 
   const subjectHeader = getHeader(headers, 'Subject');
   const subject = subjectHeader || '(No Subject)';
-  if (!subjectHeader && !isFullMessage) {
-    // console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW ID: ${message.id}) - 'Subject' header missing.`);
+  if (!subjectHeader) {
+    // console.warn(`[GmailService] mapGmailMessageToEmail (ID: ${message.id}, ParseBody: ${parseBody}) - 'Subject' header missing.`);
   }
 
   let receivedTime = 'Unknown time';
@@ -229,8 +211,8 @@ function mapGmailMessageToEmail(message: GmailMessage, isFullMessage = false): E
       console.error(`[GmailService] Error formatting internalDate "${message.internalDate}" for message ID ${message.id}:`, e);
       receivedTime = 'Invalid date';
     }
-  } else if (!isFullMessage) {
-    // console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW ID: ${message.id}) - 'internalDate' missing.`);
+  } else {
+    // console.warn(`[GmailService] mapGmailMessageToEmail (ID: ${message.id}, ParseBody: ${parseBody}) - 'internalDate' missing.`);
   }
   
   return {
@@ -239,67 +221,88 @@ function mapGmailMessageToEmail(message: GmailMessage, isFullMessage = false): E
     senderEmail: senderEmail,
     subject: subject,
     snippet: message.snippet || '',
-    body: isFullMessage ? parseMessageBody(message.payload) : (message.snippet || ''),
+    body: parseBody ? parseMessageBodyContent(message.payload) : '', // Only parse body if requested
     receivedTime: receivedTime,
-    read: !(message.labelIds?.includes('UNREAD') ?? false), // Default to read if labelIds is undefined
+    read: !(message.labelIds?.includes('UNREAD') ?? true), // Default to read if labelIds is undefined or UNREAD is not present
   };
 }
-
 
 export async function fetchEmails(accessToken: string, boxType: EmailBoxType, maxResults = 20): Promise<Email[]> {
   let labelIdsQuery: string;
   switch (boxType) {
     case 'inbox': labelIdsQuery = 'INBOX'; break;
-    case 'unread': labelIdsQuery = 'UNREAD'; break;
+    case 'unread': labelIdsQuery = 'UNREAD'; break; // For unread, we also want them to be in Inbox
     case 'sent': labelIdsQuery = 'SENT'; break;
     case 'drafts': labelIdsQuery = 'DRAFT'; break;
     default: labelIdsQuery = 'INBOX';
   }
 
-  const params = new URLSearchParams({
+  const listParams = new URLSearchParams({
     maxResults: maxResults.toString(),
   });
 
   if (boxType === 'unread') {
-    params.append('labelIds', 'INBOX'); // Often unread means unread in inbox
-    params.append('labelIds', 'UNREAD');
+    listParams.append('labelIds', 'INBOX'); // Combine with INBOX for unread
+    listParams.append('labelIds', 'UNREAD');
   } else {
-    params.append('labelIds', labelIdsQuery);
+    listParams.append('labelIds', labelIdsQuery);
   }
- 
-  // Request specific fields for each message in the list.
-  // payload(headers) should give us the headers array if metadataHeaders is also specified.
-  params.append('fields', 'nextPageToken,messages(id,snippet,internalDate,labelIds,payload(headers))');
-  params.append('metadataHeaders', 'From,Subject'); // Tell API which headers to include in payload(headers)
+  listParams.append('fields', 'nextPageToken,messages/id'); // Only get IDs from list
 
-  console.log(`[GmailService] fetchEmails - Requesting with params: ${params.toString()}`); // ACTIVE LOG
-
-  const listResponse = await makeGmailApiCall<{ messages?: GmailMessage[], nextPageToken?: string }>(
-    `/messages?${params.toString()}`,
+  console.log(`[GmailService] fetchEmails (Phase 1: List IDs) - Requesting with params: ${listParams.toString()}`);
+  const listResponse = await makeGmailApiCall<{ messages?: { id: string }[], nextPageToken?: string }>(
+    `/messages?${listParams.toString()}`,
     accessToken
   );
-
-  // THIS IS THE MOST CRITICAL LOG - PLEASE PROVIDE THIS IF THE ISSUE PERSISTS
-  console.log('[GmailService] fetchEmails - Raw listResponse from API:', JSON.stringify(listResponse, null, 2));
+  
+  console.log('[GmailService] fetchEmails (Phase 1: List IDs) - Raw listResponse from API:', JSON.stringify(listResponse, null, 2));
 
   if (!listResponse.messages || listResponse.messages.length === 0) {
-    console.log('[GmailService] fetchEmails - No messages found in response or messages array is empty.');
+    console.log('[GmailService] fetchEmails - No messages found in initial list response.');
     return [];
   }
-  
-  return listResponse.messages.map(msg => {
-    // console.log(`[GmailService] fetchEmails - Processing message from list (ID: ${msg.id}):`, JSON.stringify(msg, null, 2));
-    return mapGmailMessageToEmail(msg, false);
+
+  console.log(`[GmailService] fetchEmails (Phase 2: Get Metadata) - Fetching details for ${listResponse.messages.length} messages.`);
+  const emailDetailsPromises = listResponse.messages.map(async (msg) => {
+    if (!msg.id) {
+        console.warn('[GmailService] fetchEmails - Found a message object without an ID in listResponse:', msg);
+        return null;
+    }
+    try {
+      // For list view, we need: id, snippet, internalDate, labelIds, payload.headers (From, Subject, Date)
+      // format=METADATA should give us snippet, internalDate, labelIds, and payload with headers specified in metadataHeaders.
+      const metadataEndpoint = `/messages/${msg.id}?format=METADATA&metadataHeaders=From,Subject,Date`;
+      // console.log(`[GmailService] fetchEmails (Phase 2) - Requesting metadata for ${msg.id} from: ${metadataEndpoint}`);
+      const detail = await makeGmailApiCall<GmailMessage>(metadataEndpoint, accessToken);
+      
+      // CRITICAL LOG: Inspect the 'detail' object here
+      console.log(`[GmailService] fetchEmails (Phase 2) - Metadata received for ${msg.id}:`, JSON.stringify(detail, null, 2));
+      
+      return mapGmailMessageToEmail(detail, false); // parseBody is false for list view
+    } catch (error) {
+      console.error(`[GmailService] fetchEmails (Phase 2) - Error fetching metadata for message ${msg.id}:`, error);
+      return null; // Return null for this message if fetching its metadata fails
+    }
   });
+
+  const resolvedEmailDetails = await Promise.all(emailDetailsPromises);
+  const validEmails = resolvedEmailDetails.filter((email): email is Email => email !== null);
+  
+  console.log(`[GmailService] fetchEmails (Phase 3: Mapping Complete) - Successfully mapped ${validEmails.length} emails.`);
+  return validEmails;
 }
+
 
 export async function getEmailById(accessToken: string, id: string): Promise<Email | null> {
   try {
+    // format=FULL ensures we get the full payload including body parts for parsing.
     const message = await makeGmailApiCall<GmailMessage>(
-      `/messages/${id}?format=FULL`, // format=FULL ensures we get the full payload including body
+      `/messages/${id}?format=FULL`,
       accessToken
     );
-    return mapGmailMessageToEmail(message, true); 
+    // CRITICAL LOG for getEmailById
+    // console.log(`[GmailService] getEmailById - Full message data for ${id}:`, JSON.stringify(message, null, 2));
+    return mapGmailMessageToEmail(message, true); // parseBody is true for detail view
   } catch (error) {
     console.error(`[GmailService] Error fetching email by ID ${id}:`, error);
     return null;
@@ -320,30 +323,25 @@ export async function sendEmail(
   to: string,
   subject: string,
   body: string,
-  inReplyTo?: string, 
-  references?: string 
+  inReplyTo?: string,
+  references?: string
 ): Promise<{ id: string; threadId: string }> {
   
-  // Constructing a RFC 2822 compliant email string
-  // Ensure UTF-8 for subject if it contains special characters, though Gmail API handles this well.
-  // For simplicity, we're not explicitly encoding Subject here; modern systems often handle it.
   let rawEmailLines = [
     `To: ${to}`,
-    // From: is automatically added by Gmail based on the authenticated user
     `Subject: ${subject}`,
     `Content-Type: text/plain; charset="UTF-8"`,
-    `Content-Transfer-Encoding: 7bit`, // or 'base64' if body has complex chars, but 7bit is safer for plain text.
+    `Content-Transfer-Encoding: 7bit`,
   ];
 
   if (inReplyTo) {
-    // Ensure Message-ID format for In-Reply-To, typically <id@domain>
     rawEmailLines.push(`In-Reply-To: ${inReplyTo.startsWith('<') ? inReplyTo : `<${inReplyTo}>`}`);
   }
   if (references) {
      rawEmailLines.push(`References: ${references.split(' ').map(ref => ref.startsWith('<') ? ref : `<${ref}>`).join(' ')}`);
   }
   
-  rawEmailLines.push(''); // Empty line between headers and body
+  rawEmailLines.push(''); 
   rawEmailLines.push(body);
 
   const rawEmail = rawEmailLines.join('\r\n');
@@ -352,7 +350,7 @@ export async function sendEmail(
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
-    .replace(/=+$/, ''); // Remove trailing '='
+    .replace(/=+$/, '');
 
   const response = await makeGmailApiCall<{ id: string; threadId: string }>(
     `/messages/send`,
