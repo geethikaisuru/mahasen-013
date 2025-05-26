@@ -12,24 +12,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Settings, LifeBuoy, LogIn } from "lucide-react";
+import { LogOut, User, Settings, LogIn } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
 import { auth } from "@/lib/firebase";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { useToast } from "@/hooks/use-toast"; // Added useToast
+import { useToast } from "@/hooks/use-toast";
 
 export function UserNav() {
   const { currentUser, loading } = useAuth();
-  const { toast } = useToast(); // Initialize toast
+  const { toast } = useToast();
 
   const handleSignIn = async () => {
     const provider = new GoogleAuthProvider();
+    // Add scopes for Gmail, Google Drive, and Google Calendar
+    provider.addScope('https://mail.google.com/'); // Full access to Gmail
+    provider.addScope('https://www.googleapis.com/auth/drive'); // Full access to Google Drive
+    provider.addScope('https://www.googleapis.com/auth/calendar'); // Full access to Google Calendar
+    
     try {
       await signInWithPopup(auth, provider);
       toast({
         title: "Signed In",
-        description: "Successfully signed in with Google.",
+        description: "Successfully signed in with Google and requested additional permissions.",
         variant: "default",
       });
     } catch (error) {
@@ -116,9 +121,9 @@ export function UserNav() {
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem asChild>
-            <Link href="/settings">
+            <Link href="/settings"> {/* Changed from /profile to /settings based on nav items */}
               <User className="mr-2 h-4 w-4" />
-              <span>Profile</span>
+              <span>Profile</span> {/* Kept label as Profile for user clarity, links to settings */}
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
