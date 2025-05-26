@@ -31,14 +31,19 @@ export function UserNav() {
     provider.addScope('https://www.googleapis.com/auth/calendar'); // Full access to Google Calendar
     
     try {
+      console.log("UserNav: Initiating sign-in with popup...");
       const result = await signInWithPopup(auth, provider);
+      console.log("UserNav: signInWithPopup result:", result);
       const credential = GoogleAuthProvider.credentialFromResult(result);
+      console.log("UserNav: Credential from result:", credential);
       const token = credential?.accessToken;
+      console.log("UserNav: Extracted access token:", token ? token.substring(0, 20) + "..." : token); // Log only a snippet for security
+      
       if (token) {
         setGoogleAccessToken(token);
       } else {
         setGoogleAccessToken(null);
-        console.error("Google OAuth access token not found after sign-in.");
+        console.error("UserNav: Google OAuth access token NOT FOUND after sign-in. Credential object:", credential);
         toast({
           title: "Sign In Warning",
           description: "Could not retrieve Google access token. Some features might not work.",
@@ -47,11 +52,11 @@ export function UserNav() {
       }
       toast({
         title: "Signed In",
-        description: "Successfully signed in with Google and requested additional permissions.",
+        description: `Successfully signed in as ${result.user.email}. Requested permissions for Gmail, Drive, and Calendar.`,
         variant: "default",
       });
     } catch (error) {
-      console.error("Error signing in with Google: ", error);
+      console.error("UserNav: Error signing in with Google: ", error);
       setGoogleAccessToken(null);
       toast({
         title: "Sign In Failed",

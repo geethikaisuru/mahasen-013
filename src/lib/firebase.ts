@@ -10,7 +10,7 @@ const firebaseConfig: FirebaseOptions = {
   apiKey: "AIzaSyDMsEWGOf0lQkkkghGLtsZMOaUstiRFs_Y",
   authDomain: "mahasen-ai-v013.firebaseapp.com",
   projectId: "mahasen-ai-v013",
-  storageBucket: "mahasen-ai-v013.firebasestorage.app", // Note: Typically, Firebase Storage bucket names end with .appspot.com. Ensure this value is correct as per your Firebase project settings.
+  storageBucket: "mahasen-ai-v013.appspot.com", // CORRECTED: Typically, Firebase Storage bucket names end with .appspot.com. This was changed from .firebasestorage.app
   messagingSenderId: "225402607908",
   appId: "1:225402607908:web:2c47d16b7ccabedb5ebbb1"
 };

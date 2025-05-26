@@ -22,17 +22,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const setGoogleAccessToken = (token: string | null) => {
+    console.log("AuthContext: setGoogleAccessToken called with token:", token ? token.substring(0, 20) + "..." : token);
     setGoogleAccessTokenState(token);
   };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      console.log("AuthContext: onAuthStateChanged triggered. User:", user?.email);
       setCurrentUser(user);
       if (!user) {
         // Clear access token if user signs out
+        console.log("AuthContext: User signed out, clearing Google access token.");
         setGoogleAccessTokenState(null);
       }
       setLoading(false);
+      console.log("AuthContext: auth loading state set to false.");
     });
 
     return () => unsubscribe();

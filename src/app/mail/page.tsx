@@ -17,7 +17,7 @@ import { DraftSummaryCard } from "./components/draft-summary-card";
 import { MainReplyComposer } from "./components/main-reply-composer";
 import { ChatView } from "./components/chat-view";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, Mail as MailIcon } from "lucide-react"; // Added MailIcon
 import { Button } from "@/components/ui/button";
 
 
@@ -43,11 +43,15 @@ export default function MailPage() {
   const loadEmails = useCallback((boxType: EmailBoxType | "all") => {
     if (!googleAccessToken) {
       setEmails([]);
-      if (!authLoading && currentUser) { // User is logged in but no access token (should not happen often)
-         toast({ title: "Authentication Issue", description: "Missing Google Access Token. Please try signing out and in.", variant: "destructive" });
+      if (!authLoading && currentUser) { 
+         console.warn("MailPage: loadEmails called but no googleAccessToken. User:", currentUser.email);
+         toast({ title: "Authentication Issue", description: "Missing Google Access Token for Gmail. Please try signing out and in.", variant: "destructive" });
+      } else if (!authLoading && !currentUser) {
+        // This case is handled by the main page conditional rendering
       }
       return;
     }
+    console.log(`MailPage: Loading emails for ${boxType} with token ${googleAccessToken.substring(0,10)}...`);
     startEmailLoadingTransition(async () => {
       setSelectedEmail(null);
       setGeneratedDrafts([]);
@@ -71,6 +75,9 @@ export default function MailPage() {
       setSelectedEmail(null);
       setGeneratedDrafts([]);
     }
+    // Log current state for debugging token issues
+    console.log("MailPage Effect: currentUser:", currentUser?.email, "googleAccessToken:", googleAccessToken ? "present" : "null", "authLoading:", authLoading);
+
   }, [currentEmailBox, currentUser, googleAccessToken, loadEmails, authLoading]);
 
   const handleSelectEmail = async (email: Email) => {
@@ -78,7 +85,7 @@ export default function MailPage() {
       toast({ title: "Authentication Issue", description: "Cannot fetch email details. Missing Google Access Token.", variant: "destructive" });
       return;
     }
-    setSelectedEmail(email); // Show metadata immediately
+    setSelectedEmail(email); 
     setGeneratedDrafts([]);
     setActiveReplyContent("");
     setIsFetchingFullEmail(true);
@@ -86,7 +93,7 @@ export default function MailPage() {
     try {
       const fullEmail = await getEmailById(googleAccessToken, email.id);
       if (fullEmail) {
-        setSelectedEmail(fullEmail); // Update with full body
+        setSelectedEmail(fullEmail); 
         if (!fullEmail.read) {
           await apiMarkEmailAsRead(googleAccessToken, email.id);
           setEmails(prev => prev.map(e => e.id === email.id ? {...fullEmail, read: true} : e));
@@ -102,7 +109,7 @@ export default function MailPage() {
   };
 
   const handleGenerateInitialDrafts = () => {
-    if (!selectedEmail || !selectedEmail.body) { // Ensure body is loaded
+    if (!selectedEmail || !selectedEmail.body) { 
       toast({ title: "Error", description: "Email content not fully loaded or empty.", variant: "destructive" });
       return;
     }
@@ -160,15 +167,11 @@ export default function MailPage() {
     }
     startSendingTransition(async () => {
       try {
-        // Extract Message-ID and References from original email headers for proper threading
-        // This part is complex and depends on exact header parsing in getEmailById
-        // For simplicity, we're not fully implementing threading headers here, Gmail might thread by subject.
         await sendEmail(googleAccessToken, selectedEmail.senderEmail, `Re: ${selectedEmail.subject}`, activeReplyContent);
         toast({ title: "Email Sent", description: "Your reply has been sent via Gmail." });
         setActiveReplyContent("");
         setGeneratedDrafts([]);
-        // setSelectedEmail(null); // Optionally clear selection
-        loadEmails(currentEmailBox); // Refresh email list
+        loadEmails(currentEmailBox); 
       } catch (error) {
         toast({ title: "Error Sending Email", description: (error as Error).message || "Failed to send the reply.", variant: "destructive" });
       }
@@ -198,29 +201,32 @@ export default function MailPage() {
   if (!currentUser) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center">
-        <Mail className="h-16 w-16 text-primary mb-4" />
+        <MailIcon className="h-16 w-16 text-primary mb-4" />
         <h2 className="text-2xl font-semibold mb-2">Welcome to Mail Assistant</h2>
         <p className="text-muted-foreground mb-6">Please sign in with your Google account to access your emails and use AI features.</p>
-        {/* The sign-in button is in UserNav, typically in the header/sidebar */}
         <p className="text-sm text-muted-foreground">If you don't see a sign-in option, check the top-right corner or sidebar.</p>
       </div>
     );
   }
   
   if (!googleAccessToken && currentUser) {
+     console.error("MailPage: Rendering 'Authentication Token Missing'. currentUser:", currentUser.email, "googleAccessToken is null.");
      return (
       <div className="flex flex-col items-center justify-center h-full text-center p-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
         <h2 className="text-xl font-semibold mb-2">Authentication Token Missing</h2>
         <p className="text-muted-foreground mb-4">
-          We couldn't retrieve the necessary Google Access Token after sign-in. This can happen if permissions were not fully granted or due to a temporary issue.
+          Hello {currentUser.displayName || currentUser.email}, we couldn't retrieve the necessary Google Access Token after sign-in. 
+          This can happen if permissions were not fully granted or due to a temporary issue with Google's authentication service.
         </p>
-        <p className="text-muted-foreground mb-6">Please try signing out and signing back in. Ensure you grant all requested permissions.</p>
-        {/* UserNav component (which includes sign-out) should be accessible */}
+        <p className="text-muted-foreground mb-2">
+          Please check your browser's console (Ctrl+Shift+J or Cmd+Option+J) for any error messages from "UserNav" or "AuthContext".
+        </p>
+        <p className="text-muted-foreground mb-6">Try signing out and signing back in. Ensure you grant all requested permissions on the Google consent screen.</p>
+        <p className="text-xs text-muted-foreground">If the problem persists, verify your Google Cloud Platform project settings (OAuth Consent Screen, Enabled APIs, Credentials) as per the setup guide.</p>
       </div>
     );
   }
-
 
   return (
     <div className="flex flex-col gap-6 h-full">
@@ -248,10 +254,17 @@ export default function MailPage() {
         </div>
 
         <div className="lg:col-span-1 space-y-6 overflow-y-auto pr-2">
-           {!selectedEmail && !isLoadingEmails && (
+           {!selectedEmail && !isLoadingEmails && emails.length > 0 && ( // Show only if emails have loaded but none selected
              <Card className="shadow-md h-full flex items-center justify-center min-h-[300px]">
                <CardContent className="p-6 text-center text-muted-foreground">
                  <p>Select an email from the list to view its content and generate replies.</p>
+               </CardContent>
+             </Card>
+           )}
+            {!selectedEmail && !isLoadingEmails && emails.length === 0 && !isLoadingEmails && googleAccessToken && ( // Show if no emails and not loading
+             <Card className="shadow-md h-full flex items-center justify-center min-h-[300px]">
+               <CardContent className="p-6 text-center text-muted-foreground">
+                 <p>Your "{getEmailBoxTitle()}" box is empty or couldn't be loaded.</p>
                </CardContent>
              </Card>
            )}
