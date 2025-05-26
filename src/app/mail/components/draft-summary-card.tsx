@@ -54,7 +54,7 @@ export function DraftSummaryCard({ draftNumber, content, onSelectDraft, onUpdate
           value={editableContent}
           onChange={handleContentChange}
           readOnly={!isEditing}
-          className="h-full min-h-[150px] resize-none"
+          className="w-full h-full min-h-[150px] resize-none" // Added w-full
           placeholder="Email draft content..."
         />
       </CardContent>

@@ -41,7 +41,7 @@ export function MainReplyComposer({
             value={replyContent}
             onChange={(e) => onReplyContentChange(e.target.value)}
             placeholder="Your email reply will appear here. Edit as needed."
-            className="mt-1 min-h-[200px]"
+            className="w-full mt-1 min-h-[200px]" // Added w-full
           />
         </div>
         <div>
@@ -51,7 +51,7 @@ export function MainReplyComposer({
             value={userContext}
             onChange={(e) => onUserContextChange(e.target.value)}
             placeholder="Provide context for the AI..."
-            className="mt-1 min-h-[100px]"
+            className="w-full mt-1 min-h-[100px]" // Added w-full
           />
         </div>
         <div className="flex flex-col sm:flex-row gap-2 justify-end">

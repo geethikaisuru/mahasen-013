@@ -12,7 +12,7 @@ interface EmailDisplayProps {
 
 export function EmailDisplay({ sender, senderEmail, subject, body, receivedTime }: EmailDisplayProps) {
   return (
-    <Card className="shadow-md">
+    <Card className="shadow-md overflow-hidden"> {/* Added overflow-hidden */}
       <CardHeader>
         <div className="flex items-center gap-4">
           <Avatar className="h-10 w-10">
@@ -20,7 +20,7 @@ export function EmailDisplay({ sender, senderEmail, subject, body, receivedTime 
             <AvatarFallback>{sender.charAt(0).toUpperCase()}</AvatarFallback>
           </Avatar>
           <div>
-            <CardTitle className="text-xl">{subject}</CardTitle>
+            <CardTitle className="text-xl break-words">{subject}</CardTitle> {/* Added break-words */}
             <CardDescription>
               From: {sender} &lt;{senderEmail}&gt; - Received: {receivedTime}
             </CardDescription>
