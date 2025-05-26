@@ -208,68 +208,73 @@ export default function EmailDetailPage() {
   }
   
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6 lg:p-8">
+    <div className="flex flex-col gap-6 p-4 md:p-6 lg:p-8 w-full max-w-full overflow-x-hidden">
       <Button onClick={() => router.push('/mail')} variant="outline" className="self-start">
         <ArrowLeft className="mr-2 h-4 w-4" />
         Back to Mailbox
       </Button>
       <Separator />
 
-      {emailDetails && (
-        <>
-          <EmailDetailView
-            email={emailDetails}
-            onGenerateDrafts={handleGenerateInitialDrafts}
-            isGeneratingDrafts={isGeneratingDrafts}
-          />
+      {/* Main content wrapper to control overflow */}
+      <div className="w-full overflow-x-hidden"> {/* Ensures this container doesn't cause page scroll */}
+        {emailDetails && (
+          <>
+            <EmailDetailView
+              email={emailDetails}
+              onGenerateDrafts={handleGenerateInitialDrafts}
+              isGeneratingDrafts={isGeneratingDrafts}
+            />
 
-          {isGeneratingDrafts && generatedDrafts.length === 0 && (
-            <div className="grid md:grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-              {[1, 2, 3].map(i => (
-                <Card key={i} className="shadow-md animate-pulse">
-                  <CardContent className="p-6 space-y-3">
-                    <div className="h-5 bg-muted rounded w-1/3"></div>
-                    <div className="h-20 bg-muted rounded"></div>
-                    <div className="flex justify-end gap-2 mt-2">
-                      <div className="h-8 bg-muted rounded w-24"></div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {generatedDrafts.length > 0 && (
-            <div className="mt-6 space-y-4">
-              <h2 className="text-xl font-semibold tracking-tight text-foreground">Suggested Drafts</h2>
-              <div className="grid md:grid-cols-1 lg:grid-cols-3 gap-6">
-                {generatedDrafts.map((draft, index) => (
-                  <DraftSummaryCard
-                    key={index}
-                    draftNumber={index + 1}
-                    content={draft}
-                    onSelectDraft={handleSelectDraftForComposer}
-                    onUpdateDraftContent={(newContent) => handleUpdateDraftContent(index, newContent)}
-                  />
+            {isGeneratingDrafts && generatedDrafts.length === 0 && (
+              <div className="grid md:grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+                {[1, 2, 3].map(i => (
+                  <Card key={i} className="shadow-md animate-pulse">
+                    <CardContent className="p-6 space-y-3">
+                      <div className="h-5 bg-muted rounded w-1/3"></div>
+                      <div className="h-20 bg-muted rounded"></div>
+                      <div className="flex justify-end gap-2 mt-2">
+                        <div className="h-8 bg-muted rounded w-24"></div>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="mt-6">
-            <MainReplyComposer
-              replyContent={activeReplyContent}
-              onReplyContentChange={setActiveReplyContent}
-              userContext={userContextForAI}
-              onUserContextChange={setUserContextForAI}
-              onSend={handleSendReply}
-              onRegenerate={handleRegenerateInComposer}
-              isSending={isSendingReply}
-              isRegenerating={isRegenerating}
-            />
-          </div>
-        </>
-      )}
+            {generatedDrafts.length > 0 && (
+              <div className="mt-6 space-y-4">
+                <h2 className="text-xl font-semibold tracking-tight text-foreground">Suggested Drafts</h2>
+                <div className="grid md:grid-cols-1 lg:grid-cols-3 gap-6">
+                  {generatedDrafts.map((draft, index) => (
+                    <DraftSummaryCard
+                      key={index}
+                      draftNumber={index + 1}
+                      content={draft}
+                      onSelectDraft={handleSelectDraftForComposer}
+                      onUpdateDraftContent={(newContent) => handleUpdateDraftContent(index, newContent)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-6">
+              <MainReplyComposer
+                replyContent={activeReplyContent}
+                onReplyContentChange={setActiveReplyContent}
+                userContext={userContextForAI}
+                onUserContextChange={setUserContextForAI}
+                onSend={handleSendReply}
+                onRegenerate={handleRegenerateInComposer}
+                isSending={isSendingReply}
+                isRegenerating={isRegenerating}
+              />
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
+
+    
