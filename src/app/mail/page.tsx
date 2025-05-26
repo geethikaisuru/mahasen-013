@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect, useTransition, useCallback } from "react";
-import { useRouter } from "next/navigation"; // Added for navigation
+import { useRouter } from "next/navigation";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import type { Email, EmailBoxType } from "@/types/mail";
@@ -13,10 +13,13 @@ import { MailSidebar } from "./components/mail-sidebar";
 import { EmailList } from "./components/email-list";
 import { ChatView } from "./components/chat-view";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, AlertTriangle, Mail as MailIcon } from "lucide-react";
+import { Loader2, AlertTriangle, Mail as MailIcon, Link as LinkIcon } from "lucide-react";
+import { Button } from "@/components/ui/button"; // Added Button import
+import { cn } from "@/lib/utils";
+
 
 export default function MailListPage() {
-  const { currentUser, googleAccessToken, loading: authLoading } = useAuth();
+  const { currentUser, googleAccessToken, loading: authLoading, handleSignIn } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -24,6 +27,7 @@ export default function MailListPage() {
   const [emails, setEmails] = useState<Email[]>([]);
   const [isLoadingEmails, startEmailLoadingTransition] = useTransition();
   const [lastSelectedEmailId, setLastSelectedEmailId] = useState<string | null>(null);
+  const [isMailSidebarExpanded, setIsMailSidebarExpanded] = useState(false);
 
 
   const loadEmails = useCallback((boxType: EmailBoxType | "all") => {
@@ -31,7 +35,7 @@ export default function MailListPage() {
       setEmails([]);
       if (!authLoading && currentUser) {
          console.warn("MailPage: loadEmails called but no googleAccessToken. User:", currentUser.email);
-         toast({ title: "Authentication Issue", description: "Missing Google Access Token for Gmail. Please try signing out and in.", variant: "destructive" });
+         // Toast is handled by the main conditional rendering now
       }
       return;
     }
@@ -48,24 +52,28 @@ export default function MailListPage() {
   }, [googleAccessToken, toast, authLoading, currentUser]);
 
   useEffect(() => {
+    console.log("MailPage Effect: currentUser:", currentUser?.email, "googleAccessToken:", googleAccessToken ? "present" : "null", "authLoading:", authLoading);
     if (currentUser && googleAccessToken) {
       loadEmails(currentEmailBox);
     } else if (!authLoading && !currentUser) {
       setEmails([]);
     }
+    // If currentUser is present but token is null (e.g., after reload), the UI will prompt to connect.
   }, [currentEmailBox, currentUser, googleAccessToken, loadEmails, authLoading]);
 
   const handleSelectEmail = async (email: Email) => {
+    if (!googleAccessToken) {
+      toast({ title: "Connection Error", description: "Please connect to Google to open emails.", variant: "destructive"});
+      return;
+    }
     setLastSelectedEmailId(email.id);
     router.push(`/mail/${email.id}`);
-    // Mark as read optimistically in the list, full update might happen on detail page or background
-    if (!email.read && googleAccessToken) {
+    if (!email.read) { // No need to check googleAccessToken again, already did above
         try {
             await apiMarkEmailAsRead(googleAccessToken, email.id);
             setEmails(prev => prev.map(e => e.id === email.id ? {...e, read: true} : e));
         } catch (error) {
             console.warn("Failed to mark email as read from list view:", error);
-            // Don't toast here, as it might be too noisy. Detail page can handle errors more gracefully.
         }
     }
   };
@@ -96,20 +104,27 @@ export default function MailListPage() {
         <MailIcon className="h-16 w-16 text-primary mb-4" />
         <h2 className="text-2xl font-semibold mb-2">Welcome to Mail Assistant</h2>
         <p className="text-muted-foreground mb-6">Please sign in with your Google account to access your emails and use AI features.</p>
-        <p className="text-sm text-muted-foreground">If you don't see a sign-in option, check the top-right corner or sidebar.</p>
+        <Button onClick={handleSignIn}>
+            <LinkIcon className="mr-2 h-4 w-4" />
+            Sign In & Connect Google
+        </Button>
       </div>
     );
   }
 
-  if (!googleAccessToken && currentUser) {
+  if (!googleAccessToken && currentUser) { // User signed into Firebase, but Google token is missing
      return (
       <div className="flex flex-col items-center justify-center h-full text-center p-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Authentication Token Missing</h2>
+        <h2 className="text-xl font-semibold mb-2">Google Connection Required</h2>
         <p className="text-muted-foreground mb-4">
-          Hello {currentUser.displayName || currentUser.email}, we couldn't retrieve the necessary Google Access Token after sign-in.
+          Hello {currentUser.displayName || currentUser.email}, your Gmail access token is missing or has expired.
         </p>
-        <p className="text-muted-foreground mb-6">Try signing out and signing back in. Ensure you grant all requested permissions.</p>
+        <p className="text-muted-foreground mb-6">Please connect to your Google account to access mail features.</p>
+        <Button onClick={handleSignIn}>
+            <LinkIcon className="mr-2 h-4 w-4" />
+            Connect to Google
+        </Button>
       </div>
     );
   }
@@ -124,24 +139,40 @@ export default function MailListPage() {
       </div>
       <Separator />
 
-      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[240px_minmax(300px,1fr)_400px] gap-6 flex-grow min-h-0">
-        <div className="hidden md:block">
-           <MailSidebar onSelectBox={setCurrentEmailBox} activeBox={currentEmailBox} />
+      <div 
+        className={cn(
+          "grid gap-6 flex-grow min-h-0 transition-all duration-300 ease-in-out",
+          "grid-cols-[auto_1fr] lg:grid-cols-[auto_minmax(300px,1fr)_400px]"
+        )}
+        style={{ 
+            gridTemplateColumns: isMailSidebarExpanded 
+            ? '160px 1fr_minmax(300px,1fr)_400px' 
+            : '56px 1fr_minmax(300px,1fr)_400px',
+        }}
+      >
+        <div 
+          className="min-h-0"
+          onMouseEnter={() => setIsMailSidebarExpanded(true)}
+          onMouseLeave={() => setIsMailSidebarExpanded(false)}
+        >
+           <MailSidebar 
+            onSelectBox={setCurrentEmailBox} 
+            activeBox={currentEmailBox} 
+            isExpanded={isMailSidebarExpanded}
+           />
         </div>
 
         <div className="min-h-[400px] md:min-h-0">
           <EmailList
             emails={emails}
             onSelectEmail={handleSelectEmail}
-            selectedEmailId={lastSelectedEmailId} // Keep track of last selected for styling
+            selectedEmailId={lastSelectedEmailId} 
             isLoading={isLoadingEmails}
             title={getEmailBoxTitle()}
           />
         </div>
 
-        {/* Placeholder for the content that used to be here, or ChatView */}
         <div className="hidden lg:block lg:col-start-3 min-h-[600px]">
-            {/*  This column used to host email details or chat. Now it's primarily for chat on list view. */}
            <ChatView />
         </div>
       </div>

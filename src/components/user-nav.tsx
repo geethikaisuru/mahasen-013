@@ -12,78 +12,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Settings, LogIn } from "lucide-react";
+import { LogOut, User, Settings, LogIn, Link as LinkIcon } from "lucide-react"; // Added LinkIcon
 import Link from "next/link";
 import { useAuth } from "@/contexts/auth-context";
-import { auth } from "@/lib/firebase";
-import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { useToast } from "@/hooks/use-toast";
+// Firebase specific imports (signInWithPopup, GoogleAuthProvider, signOut) are now handled in AuthContext
 
 export function UserNav() {
-  const { currentUser, loading, setGoogleAccessToken } = useAuth();
-  const { toast } = useToast();
-
-  const handleSignIn = async () => {
-    const provider = new GoogleAuthProvider();
-    // Add scopes for Gmail, Google Drive, and Google Calendar
-    provider.addScope('https://mail.google.com/'); // Full access to Gmail
-    provider.addScope('https://www.googleapis.com/auth/drive'); // Full access to Google Drive
-    provider.addScope('https://www.googleapis.com/auth/calendar'); // Full access to Google Calendar
-    
-    try {
-      console.log("UserNav: Initiating sign-in with popup...");
-      const result = await signInWithPopup(auth, provider);
-      console.log("UserNav: signInWithPopup result:", result);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      console.log("UserNav: Credential from result:", credential);
-      const token = credential?.accessToken;
-      console.log("UserNav: Extracted access token:", token ? token.substring(0, 20) + "..." : token); // Log only a snippet for security
-      
-      if (token) {
-        setGoogleAccessToken(token);
-      } else {
-        setGoogleAccessToken(null);
-        console.error("UserNav: Google OAuth access token NOT FOUND after sign-in. Credential object:", credential);
-        toast({
-          title: "Sign In Warning",
-          description: "Could not retrieve Google access token. Some features might not work.",
-          variant: "destructive",
-        });
-      }
-      toast({
-        title: "Signed In",
-        description: `Successfully signed in as ${result.user.email}. Requested permissions for Gmail, Drive, and Calendar.`,
-        variant: "default",
-      });
-    } catch (error) {
-      console.error("UserNav: Error signing in with Google: ", error);
-      setGoogleAccessToken(null);
-      toast({
-        title: "Sign In Failed",
-        description: (error as Error).message || "An unexpected error occurred.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-      setGoogleAccessToken(null); // Clear the access token
-      toast({
-        title: "Signed Out",
-        description: "Successfully signed out.",
-        variant: "default",
-      });
-    } catch (error) {
-      console.error("Error signing out: ", error);
-      toast({
-        title: "Sign Out Failed",
-        description: (error as Error).message || "An unexpected error occurred.",
-        variant: "destructive",
-      });
-    }
-  };
+  const { currentUser, loading, handleSignIn, handleSignOut, googleAccessToken } = useAuth();
 
   if (loading) {
     return (
@@ -103,6 +38,19 @@ export function UserNav() {
       </Button>
     );
   }
+
+  // If user is signed into Firebase but Google Access Token is missing,
+  // show a button to re-connect/re-trigger OAuth flow.
+  // This is helpful for page reloads.
+  if (currentUser && !googleAccessToken) {
+    return (
+      <Button variant="outline" size="sm" onClick={handleSignIn} title="Connect to Google Services to access mail features">
+        <LinkIcon className="mr-2 h-4 w-4" />
+        Connect Google
+      </Button>
+    );
+  }
+
 
   const userInitials = 
     currentUser.displayName
@@ -141,9 +89,9 @@ export function UserNav() {
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem asChild>
-            <Link href="/settings"> {/* Changed from /profile to /settings based on nav items */}
+            <Link href="/settings"> 
               <User className="mr-2 h-4 w-4" />
-              <span>Profile</span> {/* Kept label as Profile for user clarity, links to settings */}
+              <span>Profile</span> 
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
