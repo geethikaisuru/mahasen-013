@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -11,38 +12,104 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LogOut, User, Settings, LifeBuoy } from "lucide-react";
+import { LogOut, User, Settings, LifeBuoy, LogIn } from "lucide-react";
 import Link from "next/link";
-import Image from "next/image";
+import { useAuth } from "@/contexts/auth-context";
+import { auth } from "@/lib/firebase";
+import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+import { useToast } from "@/hooks/use-toast"; // Added useToast
 
 export function UserNav() {
-  // Placeholder for authentication state
-  const isSignedIn = false; // Math.random() > 0.5; // Simulate signed in/out state
+  const { currentUser, loading } = useAuth();
+  const { toast } = useToast(); // Initialize toast
 
-  if (!isSignedIn) {
+  const handleSignIn = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+      toast({
+        title: "Signed In",
+        description: "Successfully signed in with Google.",
+        variant: "default",
+      });
+    } catch (error) {
+      console.error("Error signing in with Google: ", error);
+      toast({
+        title: "Sign In Failed",
+        description: (error as Error).message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+      toast({
+        title: "Signed Out",
+        description: "Successfully signed out.",
+        variant: "default",
+      });
+    } catch (error) {
+      console.error("Error signing out: ", error);
+      toast({
+        title: "Sign Out Failed",
+        description: (error as Error).message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (loading) {
     return (
-      <Button variant="outline" size="sm">
+      <Button variant="ghost" className="relative h-9 w-9 rounded-full" disabled>
+        <Avatar className="h-9 w-9">
+          <AvatarFallback>...</AvatarFallback>
+        </Avatar>
+      </Button>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <Button variant="outline" size="sm" onClick={handleSignIn}>
+        <LogIn className="mr-2 h-4 w-4" />
         Sign In
       </Button>
     );
   }
+
+  const userInitials = 
+    currentUser.displayName
+      ?.split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase() ||
+    currentUser.email?.charAt(0).toUpperCase() || 
+    "U";
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-9 w-9 rounded-full">
           <Avatar className="h-9 w-9">
-            <AvatarImage src="https://placehold.co/40x40.png" alt="User Avatar" data-ai-hint="profile avatar" />
-            <AvatarFallback>ME</AvatarFallback>
+            {currentUser.photoURL ? (
+              <AvatarImage src={currentUser.photoURL} alt={currentUser.displayName || "User Avatar"} data-ai-hint="profile avatar" />
+            ) : (
+              <AvatarImage src={`https://placehold.co/40x40.png?text=${userInitials}`} alt={currentUser.displayName || "User Avatar"} data-ai-hint="profile initials avatar" />
+            )}
+            <AvatarFallback>{userInitials}</AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">Mock User</p>
+            <p className="text-sm font-medium leading-none">
+              {currentUser.displayName || "User"}
+            </p>
             <p className="text-xs leading-none text-muted-foreground">
-              user@example.com
+              {currentUser.email}
             </p>
           </div>
         </DropdownMenuLabel>
@@ -60,13 +127,14 @@ export function UserNav() {
               <span>Settings</span>
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          {/* Support link can be to a static page or external service */}
+          {/* <DropdownMenuItem>
             <LifeBuoy className="mr-2 h-4 w-4" />
             <span>Support</span>
-          </DropdownMenuItem>
+          </DropdownMenuItem> */}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>
+        <DropdownMenuItem onClick={handleSignOut}>
           <LogOut className="mr-2 h-4 w-4" />
           <span>Log out</span>
         </DropdownMenuItem>
