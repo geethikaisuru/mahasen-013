@@ -1,10 +1,18 @@
+
 "use client";
 
+// This component is now largely superseded by the logic in MailPage.tsx
+// and the new components (DraftSummaryCard, MainReplyComposer).
+// It can be removed or repurposed if a standalone draft generation UI is needed elsewhere.
+// For now, I'm commenting out its content to avoid conflicts and indicate it's not actively used
+// in the new MailPage structure.
+
+/*
 import { useState, useTransition } from 'react';
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { DraftCard } from "./draft-card";
+import { DraftCard } from "./draft-card"; // This would also need adjustment or removal if DraftCard is changed
 import { handleGenerateEmailDrafts, handleRegenerateEmailDrafts } from "@/app/actions";
 import type { GenerateEmailDraftsInput, GenerateEmailDraftsOutput } from "@/ai/flows/generate-email-drafts";
 import { useToast } from '@/hooks/use-toast';
@@ -13,6 +21,8 @@ import { Card, CardContent } from '@/components/ui/card';
 
 interface DraftsSectionProps {
   initialEmailContent: string;
+  // This component would need an onDraftSelect prop if it were to integrate with MailPage
+  // onDraftSelect?: (draftContent: string) => void; 
 }
 
 export function DraftsSection({ initialEmailContent }: DraftsSectionProps) {
@@ -32,7 +42,7 @@ export function DraftsSection({ initialEmailContent }: DraftsSectionProps) {
       const result = await handleGenerateEmailDrafts(input);
       if ("error" in result || !result.drafts) {
          toast({ title: "Error Generating Drafts", description: (result as any).error || "An unknown error occurred.", variant: "destructive" });
-         setDrafts(result.drafts || ["Error", "Error", "Error"]); // Show error in drafts
+         setDrafts(result.drafts || ["Error", "Error", "Error"]);
       } else {
         setDrafts(result.drafts as [string, string, string]);
         toast({ title: "Drafts Generated", description: "Successfully generated 3 email drafts." });
@@ -47,11 +57,9 @@ export function DraftsSection({ initialEmailContent }: DraftsSectionProps) {
     }
     startTransition(async () => {
       const input: GenerateEmailDraftsInput = { emailContent, userContext };
-      // Use handleRegenerateEmailDrafts which calls the regenerate flow
       const result = await handleRegenerateEmailDrafts(input);
       if ("error" in result || !result.draftReplies) {
         toast({ title: "Error Regenerating Drafts", description: (result as any).error || "An unknown error occurred.", variant: "destructive" });
-        // Ensure result.draftReplies exists and is an array of 3 strings
         const errorDrafts = (result.draftReplies as [string,string,string]) || ["Error", "Error", "Error"];
         setDrafts(errorDrafts);
       } else {
@@ -109,34 +117,24 @@ export function DraftsSection({ initialEmailContent }: DraftsSectionProps) {
       </Card>
       
       {isPending && !drafts && (
-        <div className="grid md:grid-cols-3 gap-6">
-          {[1, 2, 3].map(i => (
-            <Card key={i} className="shadow-md animate-pulse">
-              <div className="p-6 space-y-4">
-                <div className="h-6 bg-muted rounded w-1/3"></div>
-                <div className="h-32 bg-muted rounded"></div>
-                <div className="flex justify-end gap-2">
-                  <div className="h-8 bg-muted rounded w-20"></div>
-                  <div className="h-8 bg-muted rounded w-20"></div>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
+        // Skeleton loaders
       )}
 
       {drafts && (
         <div className="grid md:grid-cols-1 lg:grid-cols-3 gap-6">
           {drafts.map((draftContent, index) => (
-            <DraftCard
-              key={index}
-              draftNumber={index + 1}
-              initialContent={draftContent}
-              onContentChange={(newContent) => handleDraftContentChange(index, newContent)}
-            />
+            // This would use DraftCard or a similar component
+            // <DraftCard ... /> 
+            <div key={index}>Draft {index + 1} placeholder</div>
           ))}
         </div>
       )}
     </div>
   );
+}
+*/
+
+// To prevent build errors if this file is imported elsewhere, export a dummy function or null.
+export default function DraftsSection_Deprecated() {
+  return null;
 }
