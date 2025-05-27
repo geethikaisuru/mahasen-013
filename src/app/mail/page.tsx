@@ -11,10 +11,10 @@ import { useAuth } from "@/contexts/auth-context";
 
 import { MailSidebar } from "./components/mail-sidebar";
 import { EmailList } from "./components/email-list";
-import { ChatView } from "./components/chat-view";
+// ChatView is no longer imported or used here
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, AlertTriangle, Mail as MailIcon, Link as LinkIcon } from "lucide-react";
-import { Button } from "@/components/ui/button"; // Added Button import
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 
@@ -35,7 +35,6 @@ export default function MailListPage() {
       setEmails([]);
       if (!authLoading && currentUser) {
          console.warn("MailPage: loadEmails called but no googleAccessToken. User:", currentUser.email);
-         // Toast is handled by the main conditional rendering now
       }
       return;
     }
@@ -58,7 +57,6 @@ export default function MailListPage() {
     } else if (!authLoading && !currentUser) {
       setEmails([]);
     }
-    // If currentUser is present but token is null (e.g., after reload), the UI will prompt to connect.
   }, [currentEmailBox, currentUser, googleAccessToken, loadEmails, authLoading]);
 
   const handleSelectEmail = async (email: Email) => {
@@ -67,8 +65,8 @@ export default function MailListPage() {
       return;
     }
     setLastSelectedEmailId(email.id);
-    router.push(`/mail/${email.id}`);
-    if (!email.read) { // No need to check googleAccessToken again, already did above
+    router.push(`/mail/${email.id}`); // Navigate to detail page
+    if (!email.read && googleAccessToken) {
         try {
             await apiMarkEmailAsRead(googleAccessToken, email.id);
             setEmails(prev => prev.map(e => e.id === email.id ? {...e, read: true} : e));
@@ -112,7 +110,7 @@ export default function MailListPage() {
     );
   }
 
-  if (!googleAccessToken && currentUser) { // User signed into Firebase, but Google token is missing
+  if (!googleAccessToken && currentUser) {
      return (
       <div className="flex flex-col items-center justify-center h-full text-center p-4">
         <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
@@ -139,25 +137,26 @@ export default function MailListPage() {
       </div>
       <Separator />
 
-      <div 
+      <div
         className={cn(
           "grid gap-6 flex-grow min-h-0 transition-all duration-300 ease-in-out",
-          "grid-cols-[auto_1fr] lg:grid-cols-[auto_minmax(300px,1fr)_400px]"
+          "grid-cols-[auto_1fr]" // Simplified: always two columns, MailSidebar and EmailList
         )}
-        style={{ 
-            gridTemplateColumns: isMailSidebarExpanded 
-            ? '160px 1fr_minmax(300px,1fr)_400px' 
-            : '56px 1fr_minmax(300px,1fr)_400px',
+        style={{
+            gridTemplateColumns: isMailSidebarExpanded
+            ? '160px 1fr' // Mail sidebar (expanded) + Email list (takes remaining space)
+            : '56px 1fr',  // Mail sidebar (collapsed) + Email list (takes remaining space)
         }}
       >
-        <div 
-          className="min-h-0"
+        <div
+          className="min-h-0 transition-all duration-300 ease-in-out"
+          style={{ width: isMailSidebarExpanded ? '160px' : '56px' }}
           onMouseEnter={() => setIsMailSidebarExpanded(true)}
           onMouseLeave={() => setIsMailSidebarExpanded(false)}
         >
-           <MailSidebar 
-            onSelectBox={setCurrentEmailBox} 
-            activeBox={currentEmailBox} 
+           <MailSidebar
+            onSelectBox={setCurrentEmailBox}
+            activeBox={currentEmailBox}
             isExpanded={isMailSidebarExpanded}
            />
         </div>
@@ -166,15 +165,12 @@ export default function MailListPage() {
           <EmailList
             emails={emails}
             onSelectEmail={handleSelectEmail}
-            selectedEmailId={lastSelectedEmailId} 
+            selectedEmailId={lastSelectedEmailId}
             isLoading={isLoadingEmails}
             title={getEmailBoxTitle()}
           />
         </div>
-
-        <div className="hidden lg:block lg:col-start-3 min-h-[600px]">
-           <ChatView />
-        </div>
+        {/* ChatView component and its container div have been removed from here */}
       </div>
     </div>
   );
