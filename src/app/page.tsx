@@ -86,54 +86,66 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Quick Start Section with Gradient Halo */}
-      <div className="gradient-halo">
-        <Card className="glow-border bg-card/60 backdrop-blur-xl smooth-transition hover:scale-[1.02]">
-          <CardHeader className="text-center space-y-4">
-            <CardTitle className="editorial-text text-2xl font-light">
-              Begin Your Journey
-            </CardTitle>
-            <CardDescription className="text-lg text-muted-foreground font-light">
-              Navigate to Mail to start generating intelligent email responses, 
-              or explore Integrations to connect your accounts.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link href="/mail">
-                <Button 
-                  size="lg" 
-                  className="group smooth-transition bg-primary/90 hover:bg-primary text-primary-foreground backdrop-blur-sm glow-border border-primary/30"
-                >
-                  Start with Mail
-                  <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </Link>
-              <Link href="/integrations">
-                <Button 
-                  variant="outline" 
-                  size="lg" 
-                  className="smooth-transition glow-border bg-card/50 backdrop-blur-sm hover:bg-card/80"
-                >
-                  Setup Integrations
-                </Button>
-              </Link>
-            </div>
-            
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground font-light">
-                Enhance your experience by updating your{" "}
-                <Link href="/personal-context" className="text-primary hover:text-primary/80 underline underline-offset-4">
-                  Personal Context
+      {/* Quick Start Section with Enhanced Gradient Halo */}
+      <div className="relative">
+        {/* Enhanced Background Halo */}
+        <div className="absolute -inset-12 md:-inset-16 lg:-inset-20">
+          <div className="w-full h-full bg-gradient-to-br from-primary/20 via-secondary/15 to-primary/10 rounded-3xl blur-3xl opacity-60"></div>
+          <div className="absolute inset-4 bg-gradient-to-tr from-secondary/15 via-primary/10 to-transparent rounded-2xl blur-2xl opacity-80"></div>
+        </div>
+        
+        {/* Outer Glow Ring */}
+        <div className="absolute -inset-8 bg-gradient-to-r from-primary/10 via-secondary/8 to-primary/10 rounded-2xl blur-xl opacity-40"></div>
+        
+        {/* Content Card */}
+        <div className="relative">
+          <Card className="glow-border bg-card/60 backdrop-blur-xl smooth-transition hover:scale-[1.02] border-primary/20 shadow-2xl shadow-primary/10">
+            <CardHeader className="text-center space-y-4">
+              <CardTitle className="editorial-text text-2xl font-light">
+                Begin Your Journey
+              </CardTitle>
+              <CardDescription className="text-lg text-muted-foreground font-light">
+                Navigate to Mail to start generating intelligent email responses, 
+                or explore Integrations to connect your accounts.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Link href="/mail">
+                  <Button 
+                    size="lg" 
+                    className="group smooth-transition bg-primary/90 hover:bg-primary text-primary-foreground backdrop-blur-sm glow-border border-primary/30 shadow-lg shadow-primary/20"
+                  >
+                    Start with Mail
+                    <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                  </Button>
                 </Link>
-                {" "}or configuring{" "}
-                <Link href="/settings" className="text-primary hover:text-primary/80 underline underline-offset-4">
-                  Settings
+                <Link href="/integrations">
+                  <Button 
+                    variant="outline" 
+                    size="lg" 
+                    className="smooth-transition glow-border bg-card/50 backdrop-blur-sm hover:bg-card/80 border-primary/20 hover:border-primary/40"
+                  >
+                    Setup Integrations
+                  </Button>
                 </Link>
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+              </div>
+              
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground font-light">
+                  Enhance your experience by updating your{" "}
+                  <Link href="/personal-context" className="text-primary hover:text-primary/80 underline underline-offset-4">
+                    Personal Context
+                  </Link>
+                  {" "}or configuring{" "}
+                  <Link href="/settings" className="text-primary hover:text-primary/80 underline underline-offset-4">
+                    Settings
+                  </Link>
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* Subtle version indicator */}

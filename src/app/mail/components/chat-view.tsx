@@ -104,9 +104,6 @@ export function ChatView() {
 
   return (
     <Card className="shadow-md flex flex-col h-[600px]">
-      <CardHeader>
-        <CardTitle>Chat with AI Assistant</CardTitle>
-      </CardHeader>
       <CardContent className="flex-grow overflow-hidden p-0">
         <ScrollArea className="h-full p-4" ref={scrollAreaRef}>
           <div className="space-y-4">
