@@ -79,7 +79,7 @@ body {
     --popover-foreground: 225 39% 21%;
     --primary: 213 94% 68%; /* Ethereal sky blue */
     --primary-foreground: 0 0% 100%;
-    --secondary: 270 50% 88%; /* Soft lavender */
+    --secondary: 11 80% 60%; /* Soft lavender */
     --secondary-foreground: 225 39% 21%;
     --muted: 220 14% 96%;
     --muted-foreground: 215 16% 47%;
@@ -91,7 +91,7 @@ body {
     --input: 220 26% 97%;
     --ring: 213 94% 68%;
     --glow-primary: 213 94% 68%;
-    --glow-secondary: 270 50% 88%;
+    --glow-secondary: 11 80% 60%;
     --ambient-glow: 213 94% 68%;
     --ethereal-gradient-start: 218 23% 98%;
     --ethereal-gradient-end: 270 50% 95%;
@@ -121,16 +121,16 @@ body {
     --secondary: 270 50% 25%; /* Deep lavender */
     --secondary-foreground: 0 0% 98%;
     --muted: 222 30% 12%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 270 50% 35%; /* Deeper lavender accent */
+    --muted-foreground: 215 20% 75%; /* Email Metadata Color */
+    --accent: 150 100% 20%; /* Deeper lavender accent | Hover Over Color */
     --accent-foreground: 0 0% 98%;
     --destructive: 0 63% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 222 30% 15%;
+    --border: 222 55% 18%;
     --input: 222 30% 12%;
     --ring: 213 94% 68%;
     --glow-primary: 213 94% 68%;
-    --glow-secondary: 270 50% 45%;
+    --glow-secondary: 11 80% 60%;
     --ambient-glow: 213 94% 68%;
     --ethereal-gradient-start: 222 30% 7%;
     --ethereal-gradient-end: 270 50% 12%;
