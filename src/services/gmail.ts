@@ -157,6 +157,7 @@ function parseMessageBodyContent(payload?: GmailMessagePart): string {
                            .replace(/\s+/g, ' ').trim(); 
       }
     } else {
+      // Fallback for environments without DOMParser (e.g., some Node.js contexts if not polyfilled)
       return decodedBody.replace(/<[^>]*>?/gm, '').replace(/\s+/g, ' ').trim();
     }
   }
@@ -165,29 +166,19 @@ function parseMessageBodyContent(payload?: GmailMessagePart): string {
 
 
 function mapGmailMessageToEmail(message: GmailMessage, parseBody: boolean): Email {
-  // console.log(`[GmailService] mapGmailMessageToEmail - ID: ${message.id}, parseBody: ${parseBody}, Full Message:`, JSON.stringify(message, null, 2));
-
-  if (!message || !message.id) {
-    console.warn('[GmailService] mapGmailMessageToEmail - Received invalid or incomplete message object:', message);
-    return {
-      id: 'unknown-id-' + Math.random().toString(36).substring(2, 9),
-      sender: 'Invalid Message Data',
-      senderEmail: 'error@example.com',
-      subject: 'Invalid Data',
-      snippet: message?.snippet || 'No snippet available for invalid message.',
-      body: '',
-      receivedTime: 'Unknown time',
-      read: true,
-    };
-  }
-  
+  // This function now expects 'message' to be a complete Message resource,
+  // especially payload.headers if called for list view (after a messages.get format=METADATA)
   const headers = message.payload?.headers;
-  
-  if (!parseBody && !headers) {
-    // This can happen if messages.get(format=METADATA) doesn't return payload.headers as expected
-    console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - message.payload.headers is missing. Full message object:`, JSON.stringify(message, null, 2));
-  }
 
+  if (!parseBody) { // This is for list view items, expects METADATA from a messages.get call
+    console.log(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - Attempting to parse. message.payload defined: ${!!message.payload}, message.payload.headers defined: ${!!message.payload?.headers}`);
+    if (message.payload?.headers) {
+      console.log(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - Headers found:`, JSON.stringify(message.payload.headers, null, 2));
+    } else {
+      // This is the critical warning if headers are still missing after individual GET
+      console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - message.payload.headers is MISSING or message.payload is MISSING. Full message object from GET:`, JSON.stringify(message, null, 2));
+    }
+  }
 
   const fromHeaderRaw = getHeader(headers, 'From');
   let senderName = 'Unknown Sender';
@@ -198,16 +189,29 @@ function mapGmailMessageToEmail(message: GmailMessage, parseBody: boolean): Emai
     if (emailMatch && emailMatch[1]) {
       senderEmail = emailMatch[1].trim();
       const namePart = fromHeaderRaw.substring(0, emailMatch.index).trim();
+      // Remove surrounding quotes from namePart if present
       senderName = namePart.replace(/^"(.*)"$/, '$1').replace(/^'(.*)'$/, '$1').trim() || senderEmail.split('@')[0];
     } else if (fromHeaderRaw.includes('@')) { 
-      senderEmail = fromHeaderRaw.trim();
-      senderName = senderEmail.split('@')[0];
+      const parts = fromHeaderRaw.split(' ');
+      const potentialEmail = parts[parts.length - 1];
+      if (potentialEmail.includes('@')) {
+        senderEmail = potentialEmail.trim();
+        if (parts.length > 1) {
+          senderName = parts.slice(0, -1).join(' ').trim();
+        } else {
+          senderName = senderEmail.split('@')[0];
+        }
+      } else {
+         senderEmail = fromHeaderRaw.trim();
+         senderName = senderEmail.split('@')[0];
+      }
     } else if (fromHeaderRaw.trim()) {
       senderName = fromHeaderRaw.trim(); 
     }
   } else if (!parseBody) {
-     console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - 'From' header missing. Headers:`, JSON.stringify(headers));
+     console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - 'From' header missing from parsed headers. This is unexpected if the messages.get call was successful.`);
   }
+
    if (senderName === 'Unknown Sender' && senderEmail !== 'unknown@example.com') {
        senderName = senderEmail.split('@')[0] || 'Sender';
    }
@@ -216,7 +220,7 @@ function mapGmailMessageToEmail(message: GmailMessage, parseBody: boolean): Emai
   const subjectHeader = getHeader(headers, 'Subject');
   const subject = subjectHeader || '(No Subject)';
   if (!subjectHeader && !parseBody) {
-    console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - 'Subject' header missing. Headers:`, JSON.stringify(headers));
+    console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - 'Subject' header missing from parsed headers. This is unexpected if the messages.get call was successful.`);
   }
 
   let receivedTime = 'Unknown time';
@@ -228,7 +232,7 @@ function mapGmailMessageToEmail(message: GmailMessage, parseBody: boolean): Emai
       receivedTime = 'Invalid date';
     }
   } else if (!parseBody) {
-    console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - 'internalDate' missing.`);
+    console.warn(`[GmailService] mapGmailMessageToEmail (LIST VIEW METADATA) ID: ${message.id} - 'internalDate' missing from message object. This is unexpected if messages.get call was successful.`);
   }
   
   return {
@@ -236,10 +240,10 @@ function mapGmailMessageToEmail(message: GmailMessage, parseBody: boolean): Emai
     sender: senderName,
     senderEmail: senderEmail,
     subject: subject,
-    snippet: message.snippet || '', 
+    snippet: message.snippet || '', // Snippet should be available from format=METADATA
     body: parseBody ? parseMessageBodyContent(message.payload) : '',
     receivedTime: receivedTime,
-    read: !(message.labelIds?.includes('UNREAD') ?? false), // Default to true (read) if labelIds is undefined
+    read: !(message.labelIds?.includes('UNREAD') ?? false), 
   };
 }
 
@@ -248,20 +252,20 @@ export async function fetchEmails(accessToken: string, boxType: EmailBoxType, ma
   // Phase 1: Get only message IDs
   const listParams = new URLSearchParams({
     maxResults: maxResults.toString(),
-    fields: 'nextPageToken,messages/id', // Only request IDs and nextPageToken
+    fields: 'nextPageToken,messages/id', 
   });
 
   let labelIdsQuery: string;
   switch (boxType) {
     case 'inbox': labelIdsQuery = 'INBOX'; break;
-    case 'unread': labelIdsQuery = 'UNREAD'; break; // UNREAD implies INBOX as well
+    case 'unread': labelIdsQuery = 'UNREAD'; break; 
     case 'sent': labelIdsQuery = 'SENT'; break;
     case 'drafts': labelIdsQuery = 'DRAFT'; break;
     default: labelIdsQuery = 'INBOX';
   }
   
   if (boxType === 'unread') {
-    listParams.append('labelIds', 'INBOX'); // For unread, ensure it's in inbox
+    listParams.append('labelIds', 'INBOX'); 
     listParams.append('labelIds', 'UNREAD');
   } else {
     listParams.append('labelIds', labelIdsQuery);
@@ -273,6 +277,7 @@ export async function fetchEmails(accessToken: string, boxType: EmailBoxType, ma
     accessToken
   );
   
+  // This log is critical to confirm what messages.list returns
   console.log('[GmailService] fetchEmails (Phase 1: List IDs) - Raw listResponse from API:', JSON.stringify(listResponse, null, 2));
 
   if (!listResponse.messages || listResponse.messages.length === 0) {
@@ -289,13 +294,19 @@ export async function fetchEmails(accessToken: string, boxType: EmailBoxType, ma
         return null;
     }
     try {
-      // Request specific headers: From, Subject, Date
-      // According to docs, format=METADATA gets: id, threadId, labelIds, snippet, historyId, internalDate, payload (headers, filename, mimeType, partId, parts), sizeEstimate
+      const detailParams = new URLSearchParams();
+      detailParams.append('format', 'METADATA');
+      // Request specific headers by appending metadataHeaders multiple times
+      detailParams.append('metadataHeaders', 'From');
+      detailParams.append('metadataHeaders', 'Subject');
+      detailParams.append('metadataHeaders', 'Date'); // The 'Date' header can also be useful
+
       const detail = await makeGmailApiCall<GmailMessage>(
-        `/messages/${msg.id}?format=METADATA&metadataHeaders=From,Subject,Date`,
+        `/messages/${msg.id}?${detailParams.toString()}`, // Use the constructed params
         accessToken
       );
-      // CRITICAL LOG: This will show if individual GET calls are returning the needed payload
+      
+      // This log is CRITICAL - shows what messages.get(format=METADATA) returns for each email
       console.log(`[GmailService] fetchEmails (Phase 2) - Metadata received for ${msg.id}:`, JSON.stringify(detail, null, 2));
       
       return mapGmailMessageToEmail(detail, false); // parseBody is false for list view metadata
@@ -348,6 +359,7 @@ export async function sendEmail(
     `To: ${to}`,
     `Subject: ${subject}`,
     `Content-Type: text/plain; charset="UTF-8"`,
+    `MIME-Version: 1.0`,
     `Content-Transfer-Encoding: 7bit`,
   ];
 
@@ -377,3 +389,4 @@ export async function sendEmail(
   );
   return response;
 }
+
