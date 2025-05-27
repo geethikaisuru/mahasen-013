@@ -18,31 +18,77 @@ interface Message {
 export function ChatView() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
-  const handleSendMessage = () => {
-    if (inputValue.trim() === "") return;
+  const handleSendMessage = async () => {
+    if (inputValue.trim() === "" || isLoading) return;
+
+    const userMessage = inputValue;
+    setInputValue("");
+    setIsLoading(true);
 
     const newUserMessage: Message = {
       id: Date.now().toString(),
-      text: inputValue,
+      text: userMessage,
       sender: "user",
       timestamp: new Date(),
     };
     setMessages((prevMessages) => [...prevMessages, newUserMessage]);
     
-    // Mock AI response
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        text: `AI Echo: "${inputValue}" (This is a mock AI response)`,
-        sender: "ai",
-        timestamp: new Date(),
-      };
-      setMessages((prevMessages) => [...prevMessages, aiResponse]);
-    }, 1000);
+    // Add typing indicator
+    const typingMessage: Message = {
+      id: "typing",
+      text: "AI is thinking...",
+      sender: "ai",
+      timestamp: new Date(),
+    };
+    setMessages((prevMessages) => [...prevMessages, typingMessage]);
 
-    setInputValue("");
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message: userMessage }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get AI response');
+      }
+
+      const data = await response.json();
+      
+             // Remove typing indicator and add AI response
+       setMessages((prevMessages) => {
+         const withoutTyping = prevMessages.filter(msg => msg.id !== "typing");
+         const aiResponse: Message = {
+           id: (Date.now() + 1).toString(),
+           text: data.response,
+           sender: "ai",
+           timestamp: new Date(),
+         };
+         return [...withoutTyping, aiResponse];
+       });
+
+     } catch (error) {
+       console.error('Error sending message:', error);
+       
+       // Remove typing indicator and show error
+       setMessages((prevMessages) => {
+         const withoutTyping = prevMessages.filter(msg => msg.id !== "typing");
+         const errorMessage: Message = {
+           id: (Date.now() + 1).toString(),
+           text: "Sorry, I'm having trouble responding right now. Please try again.",
+           sender: "ai",
+           timestamp: new Date(),
+         };
+         return [...withoutTyping, errorMessage];
+       });
+     } finally {
+       setIsLoading(false);
+     }
   };
 
   useEffect(() => {
@@ -104,13 +150,14 @@ export function ChatView() {
         <div className="flex w-full items-center space-x-2">
           <Input
             type="text"
-            placeholder="Type your message..."
+            placeholder={isLoading ? "AI is thinking..." : "Type your message..."}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+            onKeyPress={(e) => e.key === 'Enter' && !isLoading && handleSendMessage()}
+            disabled={isLoading}
             className="flex-grow"
           />
-          <Button type="submit" size="icon" onClick={handleSendMessage} disabled={!inputValue.trim()}>
+          <Button type="submit" size="icon" onClick={handleSendMessage} disabled={!inputValue.trim() || isLoading}>
             <Send className="h-4 w-4" />
             <span className="sr-only">Send</span>
           </Button>
