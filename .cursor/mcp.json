@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "@21st-dev/magic": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@21st-dev/magic@latest",
+        "API_KEY=\"5d7daa9621274249c730a5dd55a8a6a943a1569b410d714442cbf92c4ed1a0dd\""
+      ]
+    },
+    "firebase": {
+      "command": "npx",
+      "args": ["-y", "firebase-tools@latest", "experimental:mcp"]
+    }
+  }
+}
