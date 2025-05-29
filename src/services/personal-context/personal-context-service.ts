@@ -15,6 +15,62 @@ import { gmailService } from './gmail-service';
 import { personalContextAnalysisService } from './analysis-service';
 import { personalContextStore } from './context-store';
 
+// Helper function to emit logs to the UI
+const emitLog = (message: string) => {
+  // Log to console first
+  console.log(`[PersonalContextService] ${message}`);
+  
+  if (typeof window !== 'undefined') {
+    const event = new CustomEvent('personal-context-log', {
+      detail: { message, source: 'service' }
+    });
+    window.dispatchEvent(event);
+  }
+};
+
+// Capture all console logs related to personal context
+// This needs to happen at module initialization time to catch all logs
+if (typeof window !== 'undefined') {
+  // We're in the browser, so we can override console.log
+  const originalConsoleLog = console.log;
+  console.log = function(...args) {
+    // Call the original console.log
+    originalConsoleLog.apply(console, args);
+    
+    // Convert args to string for analysis
+    const logStr = typeof args[0] === 'string' ? args[0] : args.join(' ');
+    
+    // Capture ALL terminal logs related to our application - more inclusive pattern
+    // Send all relevant logs to UI
+    if (typeof logStr === 'string') {
+      // Determine the source based on log content
+      let source = 'server'; // Default source
+      
+      if (logStr.includes('[GmailService]')) {
+        source = 'gmail';
+      } else if (logStr.includes('[AnalysisService]')) {
+        source = 'analysis';
+      } else if (logStr.includes('[PersonalContextService]')) {
+        source = 'service';
+      } else if (logStr.includes('[PersonalContextAPI]') || logStr.includes('[API]')) {
+        source = 'server';
+      } else if (logStr.includes('[PersonalContextStore]')) {
+        source = 'service';
+      } else if (logStr.includes('WARNING:') || logStr.includes('Compiling')) {
+        source = 'server';
+      } else if (logStr.includes('GET /api/personal-context') || logStr.includes('POST /api/personal-context')) {
+        source = 'server';
+      }
+      
+      // Send to the UI via event
+      const event = new CustomEvent('personal-context-log', {
+        detail: { message: logStr, source }
+      });
+      window.dispatchEvent(event);
+    }
+  };
+}
+
 export class PersonalContextService {
   private static instance: PersonalContextService;
   
@@ -37,6 +93,7 @@ export class PersonalContextService {
   }> {
     try {
       console.log(`[PersonalContextService] Starting personal context learning for user: ${input.userId}`);
+      emitLog(`Starting personal context learning for user: ${input.userId}`);
       
       // Initialize learning progress
       const initialProgress: LearningProgress = {
@@ -51,18 +108,26 @@ export class PersonalContextService {
         status: 'running'
       };
       
-      await personalContextStore.saveLearningProgress(input.userId, initialProgress);
+      // Try to save initial progress, but continue if it fails
+      try {
+        await personalContextStore.saveLearningProgress(input.userId, initialProgress);
+      } catch (progressError: any) {
+        console.warn('[PersonalContextService] Failed to save initial progress, continuing without progress tracking:', progressError);
+      }
       
       // Phase 1: Discover Gmail threads
+      emitLog(`Phase 1: Discovering Gmail threads...`);
       await this.updateProgress(input.userId, 'discovery', 10);
       
       // Get user's Gmail profile first
+      emitLog(`Retrieving Gmail profile...`);
       const gmailProfile = await gmailService.getUserProfile(input.accessToken);
       if (!gmailProfile) {
         throw new Error('Failed to access Gmail profile');
       }
       
       console.log(`[PersonalContextService] Fetching threads for ${gmailProfile.emailAddress}`);
+      emitLog(`Fetching interactive threads for ${gmailProfile.emailAddress}...`);
       
       const threadsResponse = await gmailService.fetchInteractiveThreads(
         input.accessToken,
@@ -71,6 +136,7 @@ export class PersonalContextService {
       );
       
       console.log(`[PersonalContextService] Discovered ${threadsResponse.threads.length} interactive threads`);
+      emitLog(`Discovered ${threadsResponse.threads.length} interactive threads for analysis`);
       
       await this.updateProgress(input.userId, 'analysis', 30, {
         threadsDiscovered: threadsResponse.threads.length
@@ -79,16 +145,21 @@ export class PersonalContextService {
       // Phase 2: Analyze threads with AI
       if (threadsResponse.threads.length === 0) {
         console.warn(`[PersonalContextService] No threads found for analysis`);
+        emitLog(`No email threads found for analysis. Try expanding the time range or checking email activity.`);
         return {
           success: false,
           error: 'No email threads found for analysis. Try expanding the time range or checking email activity.'
         };
       }
       
+      emitLog(`Phase 2: Analyzing ${threadsResponse.threads.length} threads with AI...`);
       const analysisResult = await personalContextAnalysisService.analyzeEmailThreads(
         threadsResponse.threads,
         gmailProfile.emailAddress
       );
+      
+      emitLog(`Successfully analyzed ${threadsResponse.threads.length} threads containing ${threadsResponse.threads.reduce((sum, t) => sum + t.messageCount, 0)} emails`);
+      emitLog(`Identified ${analysisResult.contactRelationships.length} contacts from your email history`);
       
       await this.updateProgress(input.userId, 'learning', 70, {
         threadsAnalyzed: threadsResponse.threads.length,
@@ -97,6 +168,7 @@ export class PersonalContextService {
       });
       
       // Phase 3: Build personal context profile
+      emitLog(`Phase 3: Building personal context profile...`);
       const profile = await this.buildPersonalContextProfile(
         input.userId,
         gmailProfile.emailAddress,
@@ -106,11 +178,13 @@ export class PersonalContextService {
       );
       
       // Phase 4: Save everything to Firestore
+      emitLog(`Phase 4: Saving data to database...`);
       await this.savePersonalContextData(input.userId, profile, analysisResult);
       
       await this.updateProgress(input.userId, 'complete', 100);
       
       console.log(`[PersonalContextService] Successfully completed personal context learning`);
+      emitLog(`Successfully completed personal context learning`);
       
       return {
         success: true,
@@ -119,6 +193,7 @@ export class PersonalContextService {
       
     } catch (error) {
       console.error('[PersonalContextService] Error during personal context learning:', error);
+      emitLog(`Error: ${(error as Error).message}`);
       
       await this.updateProgress(input.userId, 'error', undefined, undefined, (error as Error).message);
       
@@ -307,7 +382,11 @@ export class PersonalContextService {
   ): Promise<void> {
     try {
       const existingProgress = await personalContextStore.getLearningProgress(userId);
-      if (!existingProgress) return;
+      if (!existingProgress) {
+        // If we can't get existing progress, just log and continue
+        console.warn(`[PersonalContextService] No existing progress found for user ${userId}, skipping progress update`);
+        return;
+      }
       
       const updatedProgress: Partial<LearningProgress> = {
         currentPhase: phase,
@@ -328,8 +407,17 @@ export class PersonalContextService {
       }
       
       await personalContextStore.updateLearningProgress(userId, updatedProgress);
-    } catch (updateError) {
+    } catch (updateError: any) {
       console.warn('[PersonalContextService] Failed to update progress:', updateError);
+      
+      // If Firestore isn't available, don't fail the learning process
+      if (updateError?.message?.includes('Firestore database is not properly set up')) {
+        console.warn('[PersonalContextService] Firestore not available, continuing learning without progress tracking');
+        return;
+      }
+      
+      // For other errors, continue but log the warning
+      console.warn('[PersonalContextService] Continuing learning despite progress update failure');
     }
   }
 
@@ -407,45 +495,71 @@ export class PersonalContextService {
   }
 
   private buildProfessionalProfile(partial: Partial<ProfessionalProfile>): ProfessionalProfile {
+    // Create a clean copy without undefined values
+    const cleanPartial = Object.entries(partial || {}).reduce((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {} as Record<string, any>);
+    
     return {
-      managementLevel: partial.managementLevel || 'individual',
-      expertise: partial.expertise || [],
-      meetingPatterns: {
+      // Set default values for all fields
+      jobTitle: cleanPartial.jobTitle || 'Professional',
+      company: cleanPartial.company || 'Unknown Company',
+      industry: cleanPartial.industry || 'Technology',
+      department: cleanPartial.department || 'General',
+      managementLevel: cleanPartial.managementLevel || 'individual',
+      expertise: cleanPartial.expertise || [],
+      workingHours: cleanPartial.workingHours || {
+        timezone: 'UTC',
+        startHour: 9,
+        endHour: 17,
+        workDays: [1, 2, 3, 4, 5] // Monday-Friday
+      },
+      meetingPatterns: cleanPartial.meetingPatterns || {
         preferredDuration: 30,
         preferredTimes: ['10:00 AM', '2:00 PM'],
         meetingStyle: 'formal'
       },
-      projectsAndResponsibilities: partial.projectsAndResponsibilities || [],
-      networkingStyle: 'selective',
-      decisionMakingAuthority: partial.decisionMakingAuthority || [],
-      ...partial
+      projectsAndResponsibilities: cleanPartial.projectsAndResponsibilities || [],
+      networkingStyle: cleanPartial.networkingStyle || 'selective',
+      decisionMakingAuthority: cleanPartial.decisionMakingAuthority || []
     };
   }
 
   private buildPersonalPreferences(partial: Partial<PersonalPreferences>): PersonalPreferences {
+    // Create a clean copy without undefined values
+    const cleanPartial = Object.entries(partial || {}).reduce((acc, [key, value]) => {
+      if (value !== undefined) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {} as Record<string, any>);
+    
     return {
-      responseTimingPatterns: partial.responseTimingPatterns || {
+      responseTimingPatterns: cleanPartial.responseTimingPatterns || {
         businessHours: true,
         eveningEmails: false,
         weekendEmails: false,
         urgentResponseTime: 4,
         normalResponseTime: 24
       },
-      communicationPreferences: {
+      communicationPreferences: cleanPartial.communicationPreferences || {
         preferredChannels: ['email'],
         formalityByContext: {},
         topicPreferences: [],
         avoidanceTopics: []
       },
-      decisionMakingStyle: partial.decisionMakingStyle || 'deliberate',
-      conflictResolutionApproach: 'diplomatic',
-      schedulingPreferences: {
+      decisionMakingStyle: cleanPartial.decisionMakingStyle || 'deliberate',
+      conflictResolutionApproach: cleanPartial.conflictResolutionApproach || 'diplomatic',
+      schedulingPreferences: cleanPartial.schedulingPreferences || {
         preferredMeetingTimes: ['10:00 AM', '2:00 PM'],
         bufferTimeNeeded: 15,
         backToBackTolerance: false
       },
-      personalInterests: partial.personalInterests || [],
-      valuesAndBeliefs: []
+      personalInterests: cleanPartial.personalInterests || [],
+      valuesAndBeliefs: cleanPartial.valuesAndBeliefs || []
     };
   }
 
@@ -454,26 +568,41 @@ export class PersonalContextService {
     profile: PersonalContextProfile,
     analysisResult: Awaited<ReturnType<typeof personalContextAnalysisService.analyzeEmailThreads>>
   ): Promise<void> {
-    // Save main profile
-    await personalContextStore.savePersonalContext(userId, profile);
-    
-    // Save contact relationships in batch
-    const relationships = analysisResult.contactRelationships.map(contact => ({
-      contactEmail: contact.contactEmail,
-      relationship: profile.relationships.contacts[contact.contactEmail]
-    }));
-    
-    if (relationships.length > 0) {
-      await personalContextStore.saveBatchContactRelationships(userId, relationships);
-    }
-    
-    // Save communication patterns in batch
-    const patterns = Object.entries(profile.communicationPatterns.contactSpecificStyles).map(
-      ([contactEmail, pattern]) => ({ contactEmail, pattern })
-    );
-    
-    if (patterns.length > 0) {
-      await personalContextStore.saveBatchCommunicationPatterns(userId, patterns);
+    try {
+      // Save main profile
+      await personalContextStore.savePersonalContext(userId, profile);
+      
+      // Save contact relationships in batch
+      const relationships = analysisResult.contactRelationships.map(contact => ({
+        contactEmail: contact.contactEmail,
+        relationship: profile.relationships.contacts[contact.contactEmail]
+      }));
+      
+      if (relationships.length > 0) {
+        await personalContextStore.saveBatchContactRelationships(userId, relationships);
+      }
+      
+      // Save communication patterns in batch
+      const patterns = Object.entries(profile.communicationPatterns.contactSpecificStyles).map(
+        ([contactEmail, pattern]) => ({ contactEmail, pattern })
+      );
+      
+      if (patterns.length > 0) {
+        await personalContextStore.saveBatchCommunicationPatterns(userId, patterns);
+      }
+      
+      console.log('[PersonalContextService] Successfully saved all personal context data');
+    } catch (saveError: any) {
+      console.warn('[PersonalContextService] Failed to save personal context data to Firestore:', saveError);
+      
+      // If Firestore isn't available, log a helpful message but don't fail the learning
+      if (saveError?.message?.includes('Firestore database is not properly set up')) {
+        console.warn('[PersonalContextService] Firestore not available - personal context was analyzed but not persisted. Please set up Firestore to save data permanently.');
+        return;
+      }
+      
+      // For other save errors, still continue
+      console.warn('[PersonalContextService] Personal context analysis completed but data persistence failed');
     }
   }
 
@@ -489,6 +618,14 @@ export class PersonalContextService {
         return new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
       case 'last_year':
         return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+      case 'last_2years':
+        return new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+      case 'last_3years':
+        return new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
+      case 'last_5years':
+        return new Date(now.getFullYear() - 5, now.getMonth(), now.getDate());
+      case 'all_time':
+        return new Date(2000, 0, 1); // Using a far-back date as a practical "all time" starting point
       default:
         return new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
     }

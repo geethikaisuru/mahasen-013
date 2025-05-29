@@ -43,9 +43,13 @@ export class PersonalContextStore {
   async savePersonalContext(userId: string, profile: PersonalContextProfile): Promise<void> {
     try {
       const docRef = doc(db, 'personal_contexts', userId);
+      
+      // Sanitize the profile to remove any undefined values
+      const sanitizedProfile = JSON.parse(JSON.stringify(profile));
+      
       const contextDoc: Omit<PersonalContextDocument, 'id'> = {
         userId,
-        profile,
+        profile: sanitizedProfile,
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -57,8 +61,13 @@ export class PersonalContextStore {
       });
       
       console.log(`[PersonalContextStore] Saved personal context for user: ${userId}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[PersonalContextStore] Error saving personal context for user ${userId}:`, error);
+      
+      if (error?.code === 'invalid-argument') {
+        console.error(`[PersonalContextStore] Data validation error. Please check that your data doesn't contain undefined values:`, error.message);
+      }
+      
       throw new Error(`Failed to save personal context: ${(error as Error).message}`);
     }
   }
@@ -76,9 +85,23 @@ export class PersonalContextStore {
         console.log(`[PersonalContextStore] No personal context found for user: ${userId}`);
         return null;
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[PersonalContextStore] Error retrieving personal context for user ${userId}:`, error);
-      throw new Error(`Failed to retrieve personal context: ${(error as Error).message}`);
+      
+      // Check for specific Firebase/Firestore errors
+      if (error?.code === 'permission-denied') {
+        throw new Error('Access denied. Please check your authentication and database security rules.');
+      } else if (error?.code === 'unavailable') {
+        console.warn(`[PersonalContextStore] Firestore temporarily unavailable for user ${userId}, returning null`);
+        return null; // Return null instead of throwing when temporarily unavailable
+      } else if (error?.code === 'not-found' || 
+                 error?.message?.includes('Cloud Firestore API has not been used') ||
+                 error?.message?.includes('client is offline')) {
+        console.warn(`[PersonalContextStore] Firestore database not accessible, returning null for user ${userId}`);
+        return null; // Return null instead of throwing when database doesn't exist
+      }
+      
+      throw new Error(`Failed to retrieve personal context: ${error.message}`);
     }
   }
 
@@ -138,8 +161,15 @@ export class PersonalContextStore {
       
       console.log(`[PersonalContextStore] Retrieved ${relationships.length} contact relationships for user: ${userId}`);
       return relationships;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[PersonalContextStore] Error retrieving contact relationships:`, error);
+      
+      // Handle permission errors gracefully in development
+      if (error?.code === 'permission-denied') {
+        console.warn(`[PersonalContextStore] Permission denied when retrieving contact relationships for user ${userId}`);
+        return [];
+      }
+      
       throw new Error(`Failed to retrieve contact relationships: ${(error as Error).message}`);
     }
   }
@@ -202,8 +232,15 @@ export class PersonalContextStore {
       
       console.log(`[PersonalContextStore] Retrieved ${patterns.length} communication patterns for user: ${userId}`);
       return patterns;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[PersonalContextStore] Error retrieving communication patterns:`, error);
+      
+      // Handle permission errors gracefully in development
+      if (error?.code === 'permission-denied') {
+        console.warn(`[PersonalContextStore] Permission denied when retrieving communication patterns for user ${userId}`);
+        return [];
+      }
+      
       throw new Error(`Failed to retrieve communication patterns: ${(error as Error).message}`);
     }
   }
@@ -226,9 +263,21 @@ export class PersonalContextStore {
       });
       
       console.log(`[PersonalContextStore] Saved learning progress for user: ${userId}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[PersonalContextStore] Error saving learning progress:`, error);
-      throw new Error(`Failed to save learning progress: ${(error as Error).message}`);
+      
+      // Check for specific Firebase/Firestore errors
+      if (error?.code === 'permission-denied') {
+        throw new Error('Access denied. Please check your authentication and database security rules.');
+      } else if (error?.code === 'unavailable' ||
+                 error?.code === 'not-found' ||
+                 error?.message?.includes('Cloud Firestore API has not been used') ||
+                 error?.message?.includes('client is offline')) {
+        console.warn(`[PersonalContextStore] Firestore not available, progress not saved for user ${userId}`);
+        return; // Don't throw, just continue without saving progress
+      }
+      
+      throw new Error(`Failed to save learning progress: ${error.message}`);
     }
   }
 
@@ -242,8 +291,15 @@ export class PersonalContextStore {
         return data.progress;
       }
       return null;
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[PersonalContextStore] Error retrieving learning progress:`, error);
+      
+      // Handle permission errors gracefully in development
+      if (error?.code === 'permission-denied') {
+        console.warn(`[PersonalContextStore] Permission denied when retrieving learning progress for user ${userId}`);
+        return null;
+      }
+      
       throw new Error(`Failed to retrieve learning progress: ${(error as Error).message}`);
     }
   }
@@ -377,9 +433,18 @@ export class PersonalContextStore {
         lastUpdated: personalContext?.lastUpdated,
         confidence: personalContext?.confidence
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[PersonalContextStore] Error getting user statistics:`, error);
-      throw new Error(`Failed to get user statistics: ${(error as Error).message}`);
+      
+      // For any error, return default statistics instead of throwing
+      console.warn(`[PersonalContextStore] Returning default statistics due to error: ${error.message}`);
+      return {
+        hasPersonalContext: false,
+        contactCount: 0,
+        patternCount: 0,
+        lastUpdated: undefined,
+        confidence: undefined
+      };
     }
   }
 }

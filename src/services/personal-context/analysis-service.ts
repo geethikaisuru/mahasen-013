@@ -12,6 +12,19 @@ import type {
   PersonalContextProfile
 } from '@/types/personal-context';
 
+// Helper function to emit logs to the UI
+const emitLog = (message: string) => {
+  // Log to console first
+  console.log(`[AnalysisService] ${message}`);
+  
+  if (typeof window !== 'undefined') {
+    const event = new CustomEvent('personal-context-log', {
+      detail: { message, source: 'analysis' }
+    });
+    window.dispatchEvent(event);
+  }
+};
+
 export class PersonalContextAnalysisService {
   private static instance: PersonalContextAnalysisService;
   
@@ -39,6 +52,7 @@ export class PersonalContextAnalysisService {
   }> {
     try {
       console.log(`[AnalysisService] Starting analysis of ${threads.length} threads for ${userEmail}`);
+      emitLog(`Starting AI analysis of ${threads.length} email threads...`);
       
       // Analyze threads in batches for efficiency
       const batchSize = 5;
@@ -46,6 +60,7 @@ export class PersonalContextAnalysisService {
       
       for (let i = 0; i < threads.length; i += batchSize) {
         const batch = threads.slice(i, i + batchSize);
+        emitLog(`Analyzing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(threads.length/batchSize)} (${batch.length} threads)`);
         const batchResults = await this.analyzeBatchThreads(batch, userEmail);
         threadAnalyses.push(...batchResults);
         
@@ -56,13 +71,19 @@ export class PersonalContextAnalysisService {
       }
       
       // Aggregate insights from all thread analyses
+      emitLog(`Aggregating insights from ${threadAnalyses.length} analyzed threads...`);
       const aggregatedInsights = this.aggregateInsights(threadAnalyses);
+      
+      // Log summary of findings
+      emitLog(`Analysis complete - Identified communication style: ${aggregatedInsights.communicationStyle.tone}`);
+      emitLog(`Found ${aggregatedInsights.contactRelationships.length} contacts with defined relationships`);
       
       console.log(`[AnalysisService] Completed analysis with ${aggregatedInsights.confidence}% confidence`);
       return aggregatedInsights;
       
     } catch (error) {
       console.error('[AnalysisService] Error analyzing email threads:', error);
+      emitLog(`Error during AI analysis: ${(error as Error).message}`);
       throw new Error(`Analysis failed: ${(error as Error).message}`);
     }
   }
@@ -79,6 +100,9 @@ export class PersonalContextAnalysisService {
         return this.createEmptyAnalysisResult(thread.threadId);
       }
 
+      const threadSubject = thread.subject.substring(0, 30) + (thread.subject.length > 30 ? '...' : '');
+      emitLog(`Analyzing thread: "${threadSubject}" (${thread.messages.length} messages)`);
+
       const analysisPrompt = this.buildThreadAnalysisPrompt(thread, userEmail);
       
       const threadAnalysisPrompt = ai.definePrompt({
@@ -90,10 +114,19 @@ export class PersonalContextAnalysisService {
 
       const { output } = await threadAnalysisPrompt({ content: '' });
       
-      return this.parseAnalysisResult(output?.analysis || '', thread.threadId);
+      const result = this.parseAnalysisResult(output?.analysis || '', thread.threadId);
+      
+      // Log some insights found
+      if (result.relationshipInsights.length > 0) {
+        const contacts = result.relationshipInsights.map(r => r.contactEmail).join(', ');
+        emitLog(`Found relationship insights for: ${contacts}`);
+      }
+      
+      return result;
       
     } catch (error) {
       console.error(`[AnalysisService] Error analyzing thread ${thread.threadId}:`, error);
+      emitLog(`Failed to analyze thread: ${(error as Error).message}`);
       return this.createEmptyAnalysisResult(thread.threadId);
     }
   }

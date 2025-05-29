@@ -4,6 +4,19 @@ import type {
   PersonalContextLearningInput 
 } from '@/types/personal-context';
 
+// Helper function to emit logs to the UI
+const emitLog = (message: string) => {
+  // Log to console first
+  console.log(`[GmailService] ${message}`);
+  
+  if (typeof window !== 'undefined') {
+    const event = new CustomEvent('personal-context-log', {
+      detail: { message, source: 'gmail' }
+    });
+    window.dispatchEvent(event);
+  }
+};
+
 export interface GmailThreadsResponse {
   threads: EmailThread[];
   totalThreads: number;
@@ -56,12 +69,15 @@ export class GmailService {
   ): Promise<GmailThreadsResponse> {
     try {
       console.log(`[GmailService] Starting thread discovery for ${userEmail}`);
+      emitLog(`Starting thread discovery for ${userEmail}`);
       
       const timeFilter = this.getTimeFilter(options.timeRange);
+      emitLog(`Searching for emails ${options.timeRange} (${timeFilter})`);
       
       // First, get threads where user has sent messages
       const sentThreadIds = await this.getUserSentThreadIds(accessToken, userEmail, timeFilter);
       console.log(`[GmailService] Found ${sentThreadIds.length} threads with user participation`);
+      emitLog(`Found ${sentThreadIds.length} threads with user participation`);
       
       // Then fetch full thread details for each
       const threads: EmailThread[] = [];
@@ -69,6 +85,7 @@ export class GmailService {
       
       for (let i = 0; i < sentThreadIds.length; i += batchSize) {
         const batch = sentThreadIds.slice(i, i + batchSize);
+        emitLog(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(sentThreadIds.length/batchSize)} (${batch.length} threads)`);
         const batchThreads = await this.fetchThreadBatch(accessToken, userEmail, batch, options);
         threads.push(...batchThreads);
         
@@ -79,6 +96,7 @@ export class GmailService {
       }
       
       console.log(`[GmailService] Successfully processed ${threads.length} interactive threads`);
+      emitLog(`Successfully processed ${threads.length} interactive threads`);
       
       return {
         threads,
@@ -87,6 +105,7 @@ export class GmailService {
       };
     } catch (error) {
       console.error('[GmailService] Error fetching interactive threads:', error);
+      emitLog(`Error fetching threads: ${(error as Error).message}`);
       throw new Error(`Failed to fetch Gmail threads: ${(error as Error).message}`);
     }
   }
@@ -105,6 +124,8 @@ export class GmailService {
       // Exclude automated messages and promotions
       query += ' -category:promotions -category:social -category:updates';
       query += ' -from:noreply -from:no-reply -from:donotreply';
+      
+      emitLog(`Searching Gmail with query: ${query}`);
       
       const response = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=500`,
@@ -129,9 +150,11 @@ export class GmailService {
         }
       }
       
+      emitLog(`Found ${threadIds.size} unique thread IDs from sent messages`);
       return Array.from(threadIds);
     } catch (error) {
       console.error('[GmailService] Error getting user sent thread IDs:', error);
+      emitLog(`Error getting sent threads: ${(error as Error).message}`);
       throw error;
     }
   }
@@ -152,9 +175,11 @@ export class GmailService {
         const thread = await this.fetchSingleThread(accessToken, userEmail, threadId, options);
         if (thread) {
           threads.push(thread);
+          emitLog(`Processed thread: "${thread.subject.substring(0, 30)}${thread.subject.length > 30 ? '...' : ''}" (${thread.messageCount} messages)`);
         }
       } catch (error) {
         console.warn(`[GmailService] Failed to fetch thread ${threadId}:`, error);
+        emitLog(`Failed to process thread ${threadId.substring(0, 8)}: ${(error as Error).message}`);
         // Continue with other threads
       }
     }
@@ -424,6 +449,19 @@ export class GmailService {
         break;
       case 'last_year':
         date = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+        break;
+      case 'last_2years':
+        date = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+        break;
+      case 'last_3years':
+        date = new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
+        break;
+      case 'last_5years':
+        date = new Date(now.getFullYear() - 5, now.getMonth(), now.getDate());
+        break;
+      case 'all_time':
+        // For all time, we'll use a far-back date to effectively query all emails
+        date = new Date(2000, 0, 1);
         break;
       default:
         date = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());

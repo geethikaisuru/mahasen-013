@@ -232,7 +232,7 @@ export interface PersonalContextLearningInput {
   userId: string;
   accessToken: string;
   options: {
-    timeRange: 'last_month' | 'last_3months' | 'last_6months' | 'last_year';
+    timeRange: 'last_month' | 'last_3months' | 'last_6months' | 'last_year' | 'last_2years' | 'last_3years' | 'last_5years' | 'all_time';
     analysisDepth: 'basic' | 'standard' | 'comprehensive';
     includePromotional: boolean;
     minThreadLength: number;
