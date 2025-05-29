@@ -1,6 +1,6 @@
-
 import { initializeApp, getApps, getApp, type FirebaseApp, type FirebaseOptions } from "firebase/app";
 import { getAuth, type Auth } from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
 // IMPORTANT: Ensure that Firebase Authentication is enabled in your Firebase project console (https://console.firebase.google.com/)
@@ -24,5 +24,6 @@ if (!getApps().length) {
 }
 
 const auth: Auth = getAuth(app);
+const db: Firestore = getFirestore(app);
 
-export { app, auth, firebaseConfig };
+export { app, auth, db, firebaseConfig };

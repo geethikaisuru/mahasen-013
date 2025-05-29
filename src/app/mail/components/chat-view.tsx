@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Send } from "lucide-react";
+import { useAuth } from "@/contexts/auth-context";
 
 interface Message {
   id: string;
   text: string;
   sender: "user" | "ai";
   timestamp: Date;
+  hasPersonalContext?: boolean;
 }
 
 export function ChatView() {
@@ -20,6 +22,7 @@ export function ChatView() {
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const { currentUser } = useAuth();
 
   const handleSendMessage = async () => {
     if (inputValue.trim() === "" || isLoading) return;
@@ -51,7 +54,10 @@ export function ChatView() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: userMessage }),
+        body: JSON.stringify({ 
+          message: userMessage,
+          userId: currentUser?.uid // Use authenticated user ID
+        }),
       });
 
       if (!response.ok) {
@@ -68,6 +74,7 @@ export function ChatView() {
            text: data.response,
            sender: "ai",
            timestamp: new Date(),
+           hasPersonalContext: data.hasPersonalContext
          };
          return [...withoutTyping, aiResponse];
        });
@@ -128,9 +135,16 @@ export function ChatView() {
                   }`}
                 >
                   <p>{message.text}</p>
-                  <p className={`text-xs mt-1 ${message.sender === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground/70'}`}>
-                    {message.timestamp.toLocaleTimeString()}
-                  </p>
+                  <div className="flex items-center justify-between mt-1">
+                    <p className={`text-xs ${message.sender === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground/70'}`}>
+                      {message.timestamp.toLocaleTimeString()}
+                    </p>
+                    {message.sender === "ai" && message.hasPersonalContext && (
+                      <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                        Personalized
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {message.sender === "user" && (
                   <Avatar className="h-8 w-8">
