@@ -18,7 +18,8 @@ import { Logo } from '@/components/logo';
 import { Separator } from '@/components/ui/separator';
 import { Button } from './ui/button';
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { useSidebar } from '@/components/ui/sidebar'; 
+import { useSidebar } from '@/components/ui/sidebar';
+import { GlossyCircle } from '@/components/ui/glossy-circle';
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -50,43 +51,88 @@ export function AppSidebar() {
       
       <SidebarContent className="p-2">
         <SidebarMenu className="space-y-2">
-          {NAV_ITEMS.map((item) => (
-            <SidebarMenuItem key={item.href}>
-              <Link href={item.href} legacyBehavior passHref>
-                <SidebarMenuButton
-                  isActive={item.match ? item.match(pathname) : pathname.startsWith(item.href)}
-                  tooltip={{ children: item.label, side: 'right', align: 'center' }}
-                  className={cn(
-                    "justify-start smooth-transition group relative",
-                    "hover:bg-sidebar-accent/50 hover:scale-[1.02]",
-                    "data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/20 data-[active=true]:to-secondary/10",
-                    "data-[active=true]:glow-border data-[active=true]:border-primary/30"
-                  )}
-                >
-                  <item.icon className={cn(
-                    "h-5 w-5 smooth-transition",
-                    item.match ? item.match(pathname) : pathname.startsWith(item.href) 
-                      ? "text-primary glow-icon" 
-                      : "text-sidebar-foreground/70 group-hover:text-primary group-hover:glow-icon"
-                  )} />
-                  <span className={cn(
-                    "ml-3 editorial-text font-light",
-                    open || isMobile ? "inline" : "hidden group-data-[collapsible=icon]:hidden",
-                    item.match ? item.match(pathname) : pathname.startsWith(item.href) 
-                      ? "text-primary font-medium" 
-                      : "text-sidebar-foreground group-hover:text-primary"
-                  )}>
-                    {item.label}
-                  </span>
-                  
-                  {/* Active indicator glow */}
-                  {(item.match ? item.match(pathname) : pathname.startsWith(item.href)) && (
-                    <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-secondary/5 rounded-md -z-10" />
-                  )}
-                </SidebarMenuButton>
-              </Link>
-            </SidebarMenuItem>
-          ))}
+          {NAV_ITEMS.map((item) => {
+            // Special handling for Live Voice Chat
+            if (item.href === "/live-voice-chat") {
+              return (
+                <SidebarMenuItem key={item.href}>
+                  <Link href={item.href} legacyBehavior passHref>
+                    <SidebarMenuButton
+                      isActive={pathname.startsWith(item.href)}
+                      tooltip={{ children: item.label, side: 'right', align: 'center' }}
+                      className={cn(
+                        "justify-start smooth-transition group relative min-h-[60px]",
+                        "hover:bg-sidebar-accent/50 hover:scale-[1.02]",
+                        "data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/20 data-[active=true]:to-secondary/10",
+                        "data-[active=true]:glow-border data-[active=true]:border-primary/30"
+                      )}
+                    >
+                      {/* Use GlossyCircle for Live Voice Chat */}
+                      <div className="flex items-center justify-center mr-3">
+                        <GlossyCircle 
+                          isExpanded={true} 
+                          className="scale-50"
+                        />
+                      </div>
+                      <span className={cn(
+                        "editorial-text font-light",
+                        open || isMobile ? "inline" : "hidden group-data-[collapsible=icon]:hidden",
+                        pathname.startsWith(item.href) 
+                          ? "text-primary font-medium" 
+                          : "text-sidebar-foreground group-hover:text-primary"
+                      )}>
+                        {item.label}
+                      </span>
+                      
+                      {/* Active indicator glow */}
+                      {pathname.startsWith(item.href) && (
+                        <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-secondary/5 rounded-md -z-10" />
+                      )}
+                    </SidebarMenuButton>
+                  </Link>
+                </SidebarMenuItem>
+              );
+            }
+
+            // Regular handling for other nav items
+            return (
+              <SidebarMenuItem key={item.href}>
+                <Link href={item.href} legacyBehavior passHref>
+                  <SidebarMenuButton
+                    isActive={item.match ? item.match(pathname) : pathname.startsWith(item.href)}
+                    tooltip={{ children: item.label, side: 'right', align: 'center' }}
+                    className={cn(
+                      "justify-start smooth-transition group relative",
+                      "hover:bg-sidebar-accent/50 hover:scale-[1.02]",
+                      "data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/20 data-[active=true]:to-secondary/10",
+                      "data-[active=true]:glow-border data-[active=true]:border-primary/30"
+                    )}
+                  >
+                    <item.icon className={cn(
+                      "h-5 w-5 smooth-transition",
+                      item.match ? item.match(pathname) : pathname.startsWith(item.href) 
+                        ? "text-primary glow-icon" 
+                        : "text-sidebar-foreground/70 group-hover:text-primary group-hover:glow-icon"
+                    )} />
+                    <span className={cn(
+                      "ml-3 editorial-text font-light",
+                      open || isMobile ? "inline" : "hidden group-data-[collapsible=icon]:hidden",
+                      item.match ? item.match(pathname) : pathname.startsWith(item.href) 
+                        ? "text-primary font-medium" 
+                        : "text-sidebar-foreground group-hover:text-primary"
+                    )}>
+                      {item.label}
+                    </span>
+                    
+                    {/* Active indicator glow */}
+                    {(item.match ? item.match(pathname) : pathname.startsWith(item.href)) && (
+                      <div className="absolute inset-0 bg-gradient-to-r from-primary/10 to-secondary/5 rounded-md -z-10" />
+                    )}
+                  </SidebarMenuButton>
+                </Link>
+              </SidebarMenuItem>
+            );
+          })}
         </SidebarMenu>
       </SidebarContent>
       
