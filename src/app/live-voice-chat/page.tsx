@@ -57,10 +57,10 @@ export default function LiveVoiceChatPage() {
   // Get status text
   const getStatusText = () => {
     switch (state) {
-      case 'connecting': return '🔄 Connecting to GAIA...';
+      case 'connecting': return '🔄 Connecting to Mahasen...';
       case 'connected': return '✅ Connected - Ready to chat';
-      case 'listening': return '🎤 GAIA is listening...';
-      case 'speaking': return '🗣️ GAIA is speaking...';
+      case 'listening': return '🎤 Mahasen is listening...';
+      case 'speaking': return '🗣️ Mahasen is speaking...';
       case 'error': return '❌ Connection error';
       default: return '💬 Click "Start Conversation" to begin';
     }
@@ -103,7 +103,7 @@ export default function LiveVoiceChatPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Live Voice Chat with GAIA</h1>
+          <h1 className="text-3xl font-bold">Live Voice Chat with Mahasen</h1>
           <p className="text-muted-foreground">
             Continuous real-time conversation with your AI assistant
           </p>
@@ -188,7 +188,7 @@ export default function LiveVoiceChatPage() {
             {(isListening || isSpeaking) && audioData.volume > 0 && (
               <div className="flex items-center justify-center gap-2">
                 <span className="text-sm text-muted-foreground">
-                  {isListening ? 'Your voice:' : 'GAIA volume:'}
+                  {isListening ? 'Your voice:' : 'Mahasen volume:'}
                 </span>
                 <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
                   <div 
@@ -210,7 +210,7 @@ export default function LiveVoiceChatPage() {
             <CardHeader>
               <CardTitle>Live Conversation</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Real-time chat with GAIA
+                Real-time chat with Mahasen
               </p>
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto space-y-4">
@@ -233,7 +233,7 @@ export default function LiveVoiceChatPage() {
                     >
                       <div className="flex justify-between items-start mb-1">
                         <div className="text-xs font-medium opacity-70">
-                          {message.type === 'user' ? 'You' : 'GAIA'}
+                          {message.type === 'user' ? 'You' : 'Mahasen'}
                         </div>
                         <div className="text-xs opacity-50">
                           {message.timestamp.toLocaleTimeString()}

@@ -244,7 +244,7 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
       case 'connected': return 'Connected';
       case 'speaking': return 'Speaking...';
       case 'error': return 'Error';
-      default: return 'Talk to GAIA';
+      default: return 'Talk to Mahasen';
     }
   };
 

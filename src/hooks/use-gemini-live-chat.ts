@@ -44,7 +44,7 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
     try {
       const service = new GeminiLiveChatService({ 
         apiKey,
-        systemInstruction: "Your Name is GAIA, You are a helpful AI Assistant. Respond naturally and conversationally."
+        systemInstruction: "Your Name is Mahasen, You are a helpful AI Assistant. Respond naturally and conversationally."
       });
       
       service.setCallbacks({
