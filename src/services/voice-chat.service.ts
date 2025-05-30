@@ -198,7 +198,7 @@ export class VoiceChatService {
   async initializeSession(): Promise<void> {
     try {
       const model = this.genAI.getGenerativeModel({ 
-        model: "gemini-2.0-flash-live-001" 
+        model: "gemini-2.5-flash-preview-native-audio-dialog" 
       });
 
       // For now, we'll use the regular Gemini API as the Live API WebSocket
