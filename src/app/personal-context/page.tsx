@@ -947,21 +947,22 @@ export default function PersonalContextPage() {
         <TabsContent value="profile" className="space-y-6">
           {profile ? (
             <div className="space-y-6">
+              {/* Communication Style & Patterns */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Communication Style</CardTitle>
-                  <CardDescription>Your global communication patterns</CardDescription>
+                  <CardTitle>Communication Style & Patterns</CardTitle>
+                  <CardDescription>Your global and contextual communication preferences</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <Label className="text-sm font-medium">Tone</Label>
-                      <Badge variant="secondary" className="mt-1">
+                      <Label className="text-sm font-medium">Primary Tone</Label>
+                      <Badge variant="secondary" className="mt-1 block w-fit">
                         {profile.communicationPatterns.globalStyle.tone}
                       </Badge>
                     </div>
                     <div>
-                      <Label className="text-sm font-medium">Formality</Label>
+                      <Label className="text-sm font-medium">Formality Level</Label>
                       <div className="flex items-center mt-1">
                         <div className="w-full bg-secondary rounded-full h-2">
                           <div 
@@ -974,18 +975,101 @@ export default function PersonalContextPage() {
                     </div>
                     <div>
                       <Label className="text-sm font-medium">Response Length</Label>
-                      <Badge variant="secondary" className="mt-1">
+                      <Badge variant="secondary" className="mt-1 block w-fit">
                         {profile.communicationPatterns.globalStyle.responseLength}
                       </Badge>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {profile.communicationPatterns.globalStyle.greetingStyle.length > 0 && (
+                      <div>
+                        <Label className="text-sm font-medium">Greeting Styles</Label>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {profile.communicationPatterns.globalStyle.greetingStyle.slice(0, 3).map((greeting, index) => (
+                            <Badge key={index} variant="outline" className="text-xs">{greeting}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {profile.communicationPatterns.globalStyle.closingStyle.length > 0 && (
+                      <div>
+                        <Label className="text-sm font-medium">Sign-off Styles</Label>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {profile.communicationPatterns.globalStyle.closingStyle.slice(0, 3).map((closing, index) => (
+                            <Badge key={index} variant="outline" className="text-xs">{closing}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium">Sentence Structure</Label>
+                      <p className="text-sm text-muted-foreground">{profile.communicationPatterns.globalStyle.sentenceStructure}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Emoji Usage</Label>
+                      <p className="text-sm text-muted-foreground">{profile.communicationPatterns.globalStyle.emojiUsage}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Punctuation Style</Label>
+                      <p className="text-sm text-muted-foreground">{profile.communicationPatterns.globalStyle.punctuationStyle}</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
+              {/* Relationships & Social Context */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Relationships & Social Context</CardTitle>
+                  <CardDescription>Your network and relationship dynamics</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-sm font-medium">Contact Categories</Label>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {profile.relationships.relationshipTypes.map((type, index) => (
+                          <Badge key={index} variant="secondary">
+                            {type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <Label className="text-sm font-medium">Key Contacts</Label>
+                      <div className="mt-2 space-y-2">
+                        {Object.entries(profile.relationships.contacts).slice(0, 5).map(([email, relationship]) => (
+                          <div key={email} className="flex justify-between items-center p-2 bg-muted rounded">
+                            <div>
+                              <p className="text-sm font-medium">{email}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {relationship.relationshipType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())} • 
+                                {relationship.communicationFrequency} • 
+                                Confidence: {Math.round(relationship.confidence * 100)}%
+                              </p>
+                            </div>
+                            <Badge variant="outline" className="text-xs">
+                              {relationship.totalInteractions} interactions
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Professional Profile */}
               <Card>
                 <CardHeader>
                   <CardTitle>Professional Profile</CardTitle>
-                  <CardDescription>Your work-related information</CardDescription>
+                  <CardDescription>Your work-related information and patterns</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1001,10 +1085,28 @@ export default function PersonalContextPage() {
                         <p className="text-sm">{profile.professionalProfile.company}</p>
                       </div>
                     )}
+                    {profile.professionalProfile.department && (
+                      <div>
+                        <Label className="text-sm font-medium">Department</Label>
+                        <p className="text-sm">{profile.professionalProfile.department}</p>
+                      </div>
+                    )}
+                    {profile.professionalProfile.industry && (
+                      <div>
+                        <Label className="text-sm font-medium">Industry</Label>
+                        <p className="text-sm">{profile.professionalProfile.industry}</p>
+                      </div>
+                    )}
                     <div>
                       <Label className="text-sm font-medium">Management Level</Label>
-                      <Badge variant="outline">{profile.professionalProfile.managementLevel}</Badge>
+                      <Badge variant="outline">{profile.professionalProfile.managementLevel.replace('_', ' ')}</Badge>
                     </div>
+                    {profile.professionalProfile.networkingStyle && (
+                      <div>
+                        <Label className="text-sm font-medium">Networking Style</Label>
+                        <Badge variant="secondary">{profile.professionalProfile.networkingStyle}</Badge>
+                      </div>
+                    )}
                   </div>
                   
                   {profile.professionalProfile.expertise.length > 0 && (
@@ -1017,13 +1119,325 @@ export default function PersonalContextPage() {
                       </div>
                     </div>
                   )}
+
+                  {profile.professionalProfile.projectsAndResponsibilities.length > 0 && (
+                    <div>
+                      <Label className="text-sm font-medium">Projects & Responsibilities</Label>
+                      <div className="mt-2 space-y-1">
+                        {profile.professionalProfile.projectsAndResponsibilities.slice(0, 5).map((item, index) => (
+                          <p key={index} className="text-sm text-muted-foreground">• {item}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {profile.professionalProfile.decisionMakingAuthority && profile.professionalProfile.decisionMakingAuthority.length > 0 && (
+                    <div>
+                      <Label className="text-sm font-medium">Decision Making Authority</Label>
+                      <div className="mt-2 space-y-1">
+                        {profile.professionalProfile.decisionMakingAuthority.slice(0, 3).map((item, index) => (
+                          <p key={index} className="text-sm text-muted-foreground">• {item}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {profile.professionalProfile.workingHours && (
+                    <div>
+                      <Label className="text-sm font-medium">Working Hours</Label>
+                      <p className="text-sm text-muted-foreground">
+                        {profile.professionalProfile.workingHours.startHour}:00 - {profile.professionalProfile.workingHours.endHour}:00 
+                        ({profile.professionalProfile.workingHours.timezone})
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium">Meeting Style</Label>
+                      <p className="text-sm text-muted-foreground">{profile.professionalProfile.meetingPatterns.meetingStyle}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Preferred Meeting Duration</Label>
+                      <p className="text-sm text-muted-foreground">{profile.professionalProfile.meetingPatterns.preferredDuration} minutes</p>
+                    </div>
+                    {profile.professionalProfile.meetingPatterns.preferredTimes && profile.professionalProfile.meetingPatterns.preferredTimes.length > 0 && (
+                      <div>
+                        <Label className="text-sm font-medium">Preferred Meeting Times</Label>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {profile.professionalProfile.meetingPatterns.preferredTimes.slice(0, 3).map((time, index) => (
+                            <Badge key={index} variant="outline" className="text-xs">{time}</Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
 
+              {/* Knowledge Areas & Expertise */}
+              {profile.knowledgeAreas && profile.knowledgeAreas.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Knowledge Areas & Expertise</CardTitle>
+                    <CardDescription>Domains of knowledge and expertise levels identified from communications</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {profile.knowledgeAreas.slice(0, 8).map((area, index) => (
+                        <div key={index} className="p-3 bg-muted rounded border">
+                          <div className="flex justify-between items-center mb-2">
+                            <p className="font-medium text-sm">{area.domain}</p>
+                            <Badge variant="outline" className="text-xs">
+                              {area.expertise_level}
+                            </Badge>
+                          </div>
+                          {area.context && (
+                            <p className="text-xs text-muted-foreground">{area.context}</p>
+                          )}
+                          <div className="flex items-center mt-2">
+                            <div className="w-full bg-secondary rounded-full h-1">
+                              <div 
+                                className="bg-primary h-1 rounded-full" 
+                                style={{ width: `${area.confidence * 100}%` }}
+                              />
+                            </div>
+                            <span className="ml-2 text-xs text-muted-foreground">{Math.round(area.confidence * 100)}%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Behavioral Patterns */}
+              {profile.behavioralPatterns && profile.behavioralPatterns.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Behavioral Patterns</CardTitle>
+                    <CardDescription>Observed behavioral tendencies and interaction patterns</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {profile.behavioralPatterns.slice(0, 6).map((pattern, index) => (
+                        <div key={index} className="p-3 bg-muted rounded border">
+                          <div className="flex justify-between items-start mb-2">
+                            <p className="font-medium text-sm capitalize">{pattern.type.replace('_', ' ')}</p>
+                            <Badge variant="outline" className="text-xs">
+                              {Math.round(pattern.confidence * 100)}% confidence
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-2">{pattern.pattern}</p>
+                          {pattern.triggers && pattern.triggers.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium mb-1">Triggers:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {pattern.triggers.slice(0, 3).map((trigger, triggerIndex) => (
+                                  <Badge key={triggerIndex} variant="outline" className="text-xs">{trigger}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Contextual Communication Responses */}
+              {profile.contextualResponses && profile.contextualResponses.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Contextual Communication Responses</CardTitle>
+                    <CardDescription>How communication style adapts to different scenarios and contexts</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {profile.contextualResponses.slice(0, 5).map((response, index) => (
+                        <div key={index} className="p-3 bg-muted rounded border">
+                          <div className="flex justify-between items-start mb-2">
+                            <p className="font-medium text-sm">{response.scenario}</p>
+                            <div className="flex gap-2">
+                              <Badge variant="secondary" className="text-xs">
+                                {response.formality_level.replace('_', ' ')}
+                              </Badge>
+                              <Badge variant="outline" className="text-xs">
+                                {Math.round(response.confidence * 100)}%
+                              </Badge>
+                            </div>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-2">{response.typical_response_style}</p>
+                          {response.key_phrases && response.key_phrases.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium mb-1">Common phrases:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {response.key_phrases.slice(0, 4).map((phrase, phraseIndex) => (
+                                  <Badge key={phraseIndex} variant="outline" className="text-xs">"{phrase}"</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Temporal & Timing Patterns */}
+              {profile.temporalPatterns && profile.temporalPatterns.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Temporal & Timing Patterns</CardTitle>
+                    <CardDescription>Time-based communication and availability patterns</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {profile.temporalPatterns.slice(0, 5).map((pattern, index) => (
+                        <div key={index} className="p-3 bg-muted rounded border">
+                          <div className="flex justify-between items-start mb-2">
+                            <p className="font-medium text-sm capitalize">{pattern.type.replace('_', ' ')}</p>
+                            <Badge variant="outline" className="text-xs">
+                              {Math.round(pattern.confidence * 100)}% confidence
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-2">{pattern.pattern}</p>
+                          {pattern.specific_times && pattern.specific_times.length > 0 && (
+                            <div>
+                              <p className="text-xs font-medium mb-1">Specific times:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {pattern.specific_times.slice(0, 4).map((time, timeIndex) => (
+                                  <Badge key={timeIndex} variant="outline" className="text-xs">{time}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Personal Preferences & Behavioral Patterns */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Learning Metadata</CardTitle>
-                  <CardDescription>Information about the analysis process</CardDescription>
+                  <CardTitle>Personal Preferences & Behavioral Patterns</CardTitle>
+                  <CardDescription>Your habits, preferences, and behavioral tendencies</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium">Decision Making Style</Label>
+                      <Badge variant="secondary">{profile.personalPreferences.decisionMakingStyle}</Badge>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium">Conflict Resolution</Label>
+                      <Badge variant="secondary">{profile.personalPreferences.conflictResolutionApproach}</Badge>
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label className="text-sm font-medium">Response Timing Patterns</Label>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-3 h-3 rounded-full ${profile.personalPreferences.responseTimingPatterns.businessHours ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <span className="text-xs">Business Hours</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-3 h-3 rounded-full ${profile.personalPreferences.responseTimingPatterns.eveningEmails ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <span className="text-xs">Evening Emails</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <div className={`w-3 h-3 rounded-full ${profile.personalPreferences.responseTimingPatterns.weekendEmails ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <span className="text-xs">Weekend Emails</span>
+                      </div>
+                      <div>
+                        <span className="text-xs">Urgent: {profile.personalPreferences.responseTimingPatterns.urgentResponseTime}h</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {profile.personalPreferences.personalInterests.length > 0 && (
+                    <div>
+                      <Label className="text-sm font-medium">Personal Interests</Label>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {profile.personalPreferences.personalInterests.slice(0, 8).map((interest, index) => (
+                          <Badge key={index} variant="outline">{interest}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {profile.personalPreferences.valuesAndBeliefs.length > 0 && (
+                    <div>
+                      <Label className="text-sm font-medium">Values & Beliefs</Label>
+                      <div className="mt-2 space-y-1">
+                        {profile.personalPreferences.valuesAndBeliefs.slice(0, 3).map((value, index) => (
+                          <p key={index} className="text-sm text-muted-foreground">• {value}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {profile.personalPreferences.communicationPreferences && (
+                    <div>
+                      <Label className="text-sm font-medium">Communication Preferences</Label>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                        {profile.personalPreferences.communicationPreferences.preferredChannels && profile.personalPreferences.communicationPreferences.preferredChannels.length > 0 && (
+                          <div>
+                            <p className="text-xs font-medium mb-1">Preferred Channels:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {profile.personalPreferences.communicationPreferences.preferredChannels.slice(0, 3).map((channel, index) => (
+                                <Badge key={index} variant="outline" className="text-xs">{channel}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {profile.personalPreferences.communicationPreferences.topicPreferences && profile.personalPreferences.communicationPreferences.topicPreferences.length > 0 && (
+                          <div>
+                            <p className="text-xs font-medium mb-1">Topic Preferences:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {profile.personalPreferences.communicationPreferences.topicPreferences.slice(0, 3).map((topic, index) => (
+                                <Badge key={index} variant="outline" className="text-xs">{topic}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <Label className="text-sm font-medium">Scheduling Preferences</Label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Buffer Time: {profile.personalPreferences.schedulingPreferences.bufferTimeNeeded} minutes</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">
+                          Back-to-back: {profile.personalPreferences.schedulingPreferences.backToBackTolerance ? 'Tolerates' : 'Avoids'}
+                        </p>
+                      </div>
+                    </div>
+                    {profile.personalPreferences.schedulingPreferences.preferredMeetingTimes.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {profile.personalPreferences.schedulingPreferences.preferredMeetingTimes.map((time, index) => (
+                          <Badge key={index} variant="outline" className="text-xs">{time}</Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Learning Metadata & Analytics */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Learning Metadata & Analytics</CardTitle>
+                  <CardDescription>Information about the analysis process and confidence scores</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1040,16 +1454,62 @@ export default function PersonalContextPage() {
                       <p className="text-lg font-semibold">{profile.learningMetadata.contactsClassified}</p>
                     </div>
                     <div>
-                      <Label className="text-sm font-medium">Overall Confidence</Label>
-                      <div className="flex items-center">
-                        <div 
-                          className={`w-3 h-3 rounded-full mr-2 ${getConfidenceColor(profile.learningMetadata.confidenceScores.overall)}`} 
-                        />
-                        <p className="text-lg font-semibold">
-                          {Math.round(profile.learningMetadata.confidenceScores.overall * 100)}%
-                        </p>
+                      <Label className="text-sm font-medium">Learning Source</Label>
+                      <Badge variant="outline" className="text-xs">{profile.learningMetadata.learningSource.replace('_', ' ')}</Badge>
+                    </div>
+                  </div>
+
+                  <Separator className="my-4" />
+
+                  <div>
+                    <Label className="text-sm font-medium">Confidence Scores</Label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+                      <div>
+                        <div className="flex justify-between text-sm">
+                          <span>Overall</span>
+                          <span>{Math.round(profile.learningMetadata.confidenceScores.overall * 100)}%</span>
+                        </div>
+                        <div className="w-full bg-secondary rounded-full h-2 mt-1">
+                          <div 
+                            className={`h-2 rounded-full ${getConfidenceColor(profile.learningMetadata.confidenceScores.overall)}`}
+                            style={{ width: `${profile.learningMetadata.confidenceScores.overall * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between text-sm">
+                          <span>Communication</span>
+                          <span>{Math.round(profile.learningMetadata.confidenceScores.communicationStyle * 100)}%</span>
+                        </div>
+                        <div className="w-full bg-secondary rounded-full h-2 mt-1">
+                          <div 
+                            className={`h-2 rounded-full ${getConfidenceColor(profile.learningMetadata.confidenceScores.communicationStyle)}`}
+                            style={{ width: `${profile.learningMetadata.confidenceScores.communicationStyle * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between text-sm">
+                          <span>Relationships</span>
+                          <span>{Math.round(profile.learningMetadata.confidenceScores.relationships * 100)}%</span>
+                        </div>
+                        <div className="w-full bg-secondary rounded-full h-2 mt-1">
+                          <div 
+                            className={`h-2 rounded-full ${getConfidenceColor(profile.learningMetadata.confidenceScores.relationships)}`}
+                            style={{ width: `${profile.learningMetadata.confidenceScores.relationships * 100}%` }}
+                          />
+                        </div>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="mt-4">
+                    <Label className="text-sm font-medium">Analysis Time Range</Label>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(profile.learningMetadata.analysisTimeRange.startDate).toLocaleDateString()} - {new Date(profile.learningMetadata.analysisTimeRange.endDate).toLocaleDateString()}
+                    </p>
                   </div>
                 </CardContent>
               </Card>

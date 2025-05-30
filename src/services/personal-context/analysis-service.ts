@@ -9,7 +9,11 @@ import type {
   PersonalInsight,
   CommunicationStyle,
   ContactCategory,
-  PersonalContextProfile
+  PersonalContextProfile,
+  BehavioralPattern,
+  ContextualResponse,
+  TemporalPattern,
+  KnowledgeArea
 } from '@/types/personal-context';
 
 // Helper function to emit logs to the UI
@@ -48,6 +52,10 @@ export class PersonalContextAnalysisService {
     contactRelationships: Array<{ contactEmail: string; category: ContactCategory; confidence: number }>;
     professionalProfile: Partial<PersonalContextProfile['professionalProfile']>;
     personalPreferences: Partial<PersonalContextProfile['personalPreferences']>;
+    behavioralPatterns: BehavioralPattern[];
+    contextualResponses: ContextualResponse[];
+    temporalPatterns: TemporalPattern[];
+    knowledgeAreas: KnowledgeArea[];
     confidence: number;
   }> {
     try {
@@ -160,67 +168,174 @@ export class PersonalContextAnalysisService {
 
     const sampleUserMessages = userMessages.slice(0, 3).map(m => ({
       to: m.to.slice(0, 2), // Limit recipients
-      body: m.body.substring(0, 500) + (m.body.length > 500 ? '...' : ''), // Limit body length
+      body: m.body.substring(0, 800) + (m.body.length > 800 ? '...' : ''), // Increased body length
+      timestamp: m.timestamp.toISOString(),
+      subject: m.subject
+    }));
+
+    const sampleOtherMessages = thread.messages.filter(m => !m.isFromUser).slice(0, 2).map(m => ({
+      from: m.from,
+      body: m.body.substring(0, 400) + (m.body.length > 400 ? '...' : ''),
       timestamp: m.timestamp.toISOString()
     }));
 
-    return `You are an expert at analyzing communication patterns and personal context from email threads. 
+    return `You are an expert at analyzing communication patterns and extracting comprehensive personal context from email threads. 
 
-Analyze this email thread to extract insights about the user's communication style, relationships, and professional context.
+Analyze this email thread to extract detailed insights about the user's communication style, relationships, professional context, personal preferences, and behavioral patterns.
 
 Thread Summary:
 ${JSON.stringify(threadSummary, null, 2)}
 
-Sample User Messages:
+User's Messages:
 ${JSON.stringify(sampleUserMessages, null, 2)}
 
-Please analyze and provide insights in the following JSON format:
+Other Participants' Messages:
+${JSON.stringify(sampleOtherMessages, null, 2)}
+
+Please analyze and provide comprehensive insights in the following JSON format:
 
 {
   "communicationInsights": [
     {
-      "type": "tone|formality|response_pattern|style_variation",
-      "description": "Brief description of the insight",
-      "evidence": ["specific examples from the messages"],
+      "type": "tone|formality|greeting_style|sign_off_style|response_timing|sentence_structure|emoji_usage|punctuation_style|language_preference|style_variation",
+      "description": "Detailed description of the communication pattern observed",
+      "evidence": ["specific examples from messages"],
       "confidence": 0.0-1.0,
-      "contactEmail": "email if contact-specific"
+      "contactEmail": "email if contact-specific, null if general pattern",
+      "contextual_factors": ["factors that influence this communication style"]
     }
   ],
   "relationshipInsights": [
     {
       "contactEmail": "email address",
       "suggestedCategory": "family|close_friends|work_colleagues|clients_customers|executives_bosses|vendors_service_providers|unknown_cold_outreach|academic_contacts|community_organization|government_official",
+      "relationshipDynamics": "description of how they interact (formal, casual, friendly, respectful, etc.)",
+      "communicationFrequency": "daily|weekly|monthly|occasional|rare",
+      "responseTimePattern": "immediate|within_hours|business_hours|delayed|varies",
+      "initiationPattern": "user_initiates|contact_initiates|mutual|unknown",
       "evidence": ["indicators that support this categorization"],
       "confidence": 0.0-1.0,
-      "communicationPattern": "description of how they interact"
+      "sharedContexts": ["work projects", "personal interests", "family connections", etc.],
+      "addressingStyle": "how the user addresses this contact (first name, title, nickname, etc.)"
     }
   ],
   "professionalInsights": [
     {
-      "type": "role|company|expertise|responsibility|authority",
-      "value": "extracted value",
+      "type": "role|company|department|responsibilities|expertise|authority_level|decision_making|meeting_preferences|work_schedule|project_involvement|industry_knowledge|networking_style|management_level|reporting_structure",
+      "value": "extracted value or description",
       "evidence": ["supporting evidence from messages"],
-      "confidence": 0.0-1.0
+      "confidence": 0.0-1.0,
+      "context": "additional context about this professional aspect"
     }
   ],
   "personalInsights": [
     {
-      "type": "preference|interest|schedule|decision_style|communication_preference",
-      "value": "extracted value",
+      "type": "schedule_preference|availability_pattern|family_information|hobby_interest|travel_preference|food_preference|entertainment_choice|value_belief|decision_making_style|conflict_resolution|stress_indicator|privacy_boundary|seasonal_pattern|routine_habit|brand_preference|location_preference|restaurant_preference|shopping_habit|daily_routine|cultural_preference|learning_preference|information_consumption|leisure_activity|sports_team|music_preference|book_preference|movie_preference|technology_preference|social_media_usage|communication_channel_preference",
+      "value": "extracted value or description",
+      "evidence": ["supporting evidence from messages"],
+      "confidence": 0.0-1.0,
+      "category": "personal|family|lifestyle|preferences|behavioral|temporal|cultural|entertainment|consumption"
+    }
+  ],
+  "behavioralPatterns": [
+    {
+      "type": "delegation_comfort|request_handling|invitation_response|urgency_handling|information_sharing|boundary_setting|escalation_trigger|group_dynamics|leadership_style|collaboration_preference",
+      "pattern": "description of the behavioral pattern observed",
+      "triggers": ["situations that trigger this behavior"],
+      "evidence": ["examples from the conversation"],
+      "confidence": 0.0-1.0
+    }
+  ],
+  "contextualResponses": [
+    {
+      "scenario": "description of common scenario (meeting requests, project updates, etc.)",
+      "typical_response_style": "how they typically respond to this type of situation",
+      "formality_level": "very_low|low|medium|high|very_high",
+      "key_phrases": ["common phrases or expressions they use"],
+      "evidence": ["examples from messages"],
+      "confidence": 0.0-1.0
+    }
+  ],
+  "temporalPatterns": [
+    {
+      "type": "response_timing|availability_hours|seasonal_behavior|deadline_handling|time_sensitivity",
+      "pattern": "description of the temporal pattern",
+      "specific_times": ["if applicable, specific times mentioned"],
       "evidence": ["supporting evidence"],
       "confidence": 0.0-1.0
+    }
+  ],
+  "knowledgeAreas": [
+    {
+      "domain": "specific area of knowledge (technology, industry, hobby, etc.)",
+      "expertise_level": "novice|intermediate|advanced|expert",
+      "evidence": ["examples showing knowledge in this area"],
+      "confidence": 0.0-1.0,
+      "context": "how this knowledge is demonstrated"
     }
   ]
 }
 
-Focus on:
-1. Communication tone and style patterns
-2. Relationship dynamics and professional hierarchies
-3. Time preferences and scheduling patterns
-4. Decision-making style and authority level
-5. Personal interests or values that surface in communication
+Focus on extracting:
 
-Be conservative with confidence scores. Only assign high confidence (>0.8) when there is clear, repeated evidence.`;
+**Communication Style & Patterns:**
+- Tone variation with different contacts (formal, casual, friendly, direct)
+- Greeting patterns ("Hi", "Hello", "Hey", professional titles)
+- Sign-off preferences ("Best", "Thanks", "Regards", casual endings)
+- Response timing patterns and urgency handling
+- Sentence structure (short vs long, complexity)
+- Emoji and punctuation usage patterns
+- Language preferences and regional expressions
+
+**Relationship & Social Context:**
+- How they address different people (first names, titles, nicknames)
+- Relationship dynamics and communication formality levels
+- Shared contexts and common topics of discussion
+- Communication frequency and initiation patterns
+- Professional vs personal relationship boundaries
+
+**Professional Information:**
+- Current role, responsibilities, and authority levels
+- Work schedule patterns and availability
+- Meeting preferences and scheduling patterns
+- Project involvement and professional goals
+- Industry knowledge and technical expertise
+- Decision-making patterns and delegation comfort
+- Management style and team interactions
+
+**Personal Preferences & Habits:**
+- Daily routines mentioned in emails
+- Travel patterns and location preferences
+- Family information and personal relationships
+- Hobbies, interests, and entertainment preferences
+- Values and beliefs that influence communication
+- Stress indicators and busy period behaviors
+- Food preferences, favorite restaurants mentioned
+- Shopping habits and brand preferences mentioned
+- Entertainment choices (movies, music, books, sports teams mentioned)
+- Cultural preferences and background indicators
+- Learning preferences and information consumption habits
+- Technology preferences and social media usage patterns
+- Daily routines and lifestyle patterns
+- Leisure activities and recreational interests
+
+**Behavioral Patterns:**
+- How they handle different types of requests
+- Conflict resolution and diplomatic communication
+- Privacy boundaries and information sharing comfort
+- Group email dynamics vs private communication
+- Escalation triggers and when they involve others
+
+**Contextual Adaptations:**
+- How communication style changes based on:
+  - Recipient type (family, colleagues, clients, executives)
+  - Email context (urgent, casual, formal business)
+  - Group vs individual communication
+  - First contact vs ongoing relationship
+
+Be thorough and extract as much meaningful personal context as possible. Look for subtle patterns in word choice, formality shifts, topics discussed, and relationship dynamics. The goal is to build a comprehensive understanding of how this person communicates and interacts in different contexts.
+
+Assign confidence scores conservatively - only use high confidence (>0.8) when there is clear, repeated evidence across multiple messages.`;
   }
 
   /**
@@ -243,6 +358,10 @@ Be conservative with confidence scores. Only assign high confidence (>0.8) when 
         relationshipInsights: parsed.relationshipInsights || [],
         professionalInsights: parsed.professionalInsights || [],
         personalInsights: parsed.personalInsights || [],
+        behavioralPatterns: parsed.behavioralPatterns || [],
+        contextualResponses: parsed.contextualResponses || [],
+        temporalPatterns: parsed.temporalPatterns || [],
+        knowledgeAreas: parsed.knowledgeAreas || [],
         confidence: this.calculateOverallConfidence(parsed)
       };
       
@@ -260,6 +379,10 @@ Be conservative with confidence scores. Only assign high confidence (>0.8) when 
     contactRelationships: Array<{ contactEmail: string; category: ContactCategory; confidence: number }>;
     professionalProfile: Partial<PersonalContextProfile['professionalProfile']>;
     personalPreferences: Partial<PersonalContextProfile['personalPreferences']>;
+    behavioralPatterns: BehavioralPattern[];
+    contextualResponses: ContextualResponse[];
+    temporalPatterns: TemporalPattern[];
+    knowledgeAreas: KnowledgeArea[];
     confidence: number;
   } {
     console.log(`[AnalysisService] Aggregating insights from ${analyses.length} thread analyses`);
@@ -270,20 +393,36 @@ Be conservative with confidence scores. Only assign high confidence (>0.8) when 
     // Aggregate relationship insights
     const contactRelationships = this.aggregateContactRelationships(analyses);
     
-    // Aggregate professional insights
-    const professionalProfile = this.aggregateProfessionalProfile(analyses);
+    // Aggregate professional insights (enhanced)
+    const professionalProfile = this.aggregateEnhancedProfessionalProfile(analyses);
     
-    // Aggregate personal insights
-    const personalPreferences = this.aggregatePersonalPreferences(analyses);
+    // Aggregate personal insights (enhanced)
+    const personalPreferences = this.aggregateEnhancedPersonalPreferences(analyses);
+    
+    // Aggregate new enhanced data types
+    const behavioralPatterns = this.aggregateBehavioralPatterns(analyses);
+    const contextualResponses = this.aggregateContextualResponses(analyses);
+    const temporalPatterns = this.aggregateTemporalPatterns(analyses);
+    const knowledgeAreas = this.aggregateKnowledgeAreas(analyses);
     
     // Calculate overall confidence
     const overallConfidence = this.calculateAggregatedConfidence(analyses);
+
+    // Log additional insights for debugging
+    emitLog(`Extracted ${behavioralPatterns.length} unique behavioral patterns across all threads`);
+    emitLog(`Identified ${contextualResponses.length} contextual response patterns`);
+    emitLog(`Found ${temporalPatterns.length} temporal communication patterns`);
+    emitLog(`Discovered ${knowledgeAreas.length} areas of expertise/knowledge`);
 
     return {
       communicationStyle,
       contactRelationships,
       professionalProfile,
       personalPreferences,
+      behavioralPatterns,
+      contextualResponses,
+      temporalPatterns,
+      knowledgeAreas,
       confidence: overallConfidence
     };
   }
@@ -353,29 +492,36 @@ Be conservative with confidence scores. Only assign high confidence (>0.8) when 
   /**
    * Aggregates professional profile insights
    */
-  private aggregateProfessionalProfile(analyses: ThreadAnalysisResult[]): Partial<PersonalContextProfile['professionalProfile']> {
+  private aggregateEnhancedProfessionalProfile(analyses: ThreadAnalysisResult[]): Partial<PersonalContextProfile['professionalProfile']> {
     const professionalInsights = analyses.flatMap(a => a.professionalInsights);
     
     const roleInsights = professionalInsights.filter(i => i.type === 'role');
     const companyInsights = professionalInsights.filter(i => i.type === 'company');
+    const departmentInsights = professionalInsights.filter(i => i.type === 'department');
     const expertiseInsights = professionalInsights.filter(i => i.type === 'expertise');
-    const responsibilityInsights = professionalInsights.filter(i => i.type === 'responsibility');
-    const authorityInsights = professionalInsights.filter(i => i.type === 'authority');
+    const responsibilityInsights = professionalInsights.filter(i => i.type === 'responsibilities');
+    const authorityInsights = professionalInsights.filter(i => i.type === 'authority_level');
+    const meetingInsights = professionalInsights.filter(i => i.type === 'meeting_preferences');
+    const scheduleInsights = professionalInsights.filter(i => i.type === 'work_schedule');
+    const managementInsights = professionalInsights.filter(i => i.type === 'management_level');
     
     return {
       jobTitle: this.findDominantValue(roleInsights.map(i => i.value)),
       company: this.findDominantValue(companyInsights.map(i => i.value)),
+      department: this.findDominantValue(departmentInsights.map(i => i.value)),
       expertise: this.extractUniqueValues(expertiseInsights.map(i => i.value)).slice(0, 5),
       projectsAndResponsibilities: this.extractUniqueValues(responsibilityInsights.map(i => i.value)).slice(0, 10),
       decisionMakingAuthority: this.extractUniqueValues(authorityInsights.map(i => i.value)).slice(0, 5),
-      managementLevel: this.inferManagementLevel(authorityInsights, responsibilityInsights)
+      managementLevel: this.inferManagementLevel(authorityInsights, responsibilityInsights),
+      meetingPatterns: this.inferMeetingPatterns(meetingInsights),
+      workingHours: this.inferWorkingHours(scheduleInsights)
     };
   }
 
   /**
    * Aggregates personal preference insights
    */
-  private aggregatePersonalPreferences(analyses: ThreadAnalysisResult[]): Partial<PersonalContextProfile['personalPreferences']> {
+  private aggregateEnhancedPersonalPreferences(analyses: ThreadAnalysisResult[]): Partial<PersonalContextProfile['personalPreferences']> {
     const personalInsights = analyses.flatMap(a => a.personalInsights);
     
     const scheduleInsights = personalInsights.filter(i => i.type === 'schedule');
@@ -387,6 +533,174 @@ Be conservative with confidence scores. Only assign high confidence (>0.8) when 
       decisionMakingStyle: this.findDominantValue(decisionStyleInsights.map(i => i.value)) as any || 'deliberate',
       personalInterests: this.extractUniqueValues(preferenceInsights.map(i => i.value)).slice(0, 10)
     };
+  }
+
+  /**
+   * Aggregates behavioral patterns from all analyses
+   */
+  private aggregateBehavioralPatterns(analyses: ThreadAnalysisResult[]): BehavioralPattern[] {
+    const allPatterns = analyses.flatMap(a => a.behavioralPatterns || []);
+    
+    // Group similar patterns by type and merge them
+    const patternMap = new Map<string, BehavioralPattern[]>();
+    
+    allPatterns.forEach(pattern => {
+      const existing = patternMap.get(pattern.type) || [];
+      existing.push(pattern);
+      patternMap.set(pattern.type, existing);
+    });
+    
+    const aggregatedPatterns: BehavioralPattern[] = [];
+    
+    patternMap.forEach((patterns, type) => {
+      if (patterns.length > 0) {
+        // Find the most confident pattern of this type
+        const bestPattern = patterns.reduce((best, current) => 
+          current.confidence > best.confidence ? current : best
+        );
+        
+        // Merge evidence and triggers from all patterns of this type
+        const allEvidence = Array.from(new Set(patterns.flatMap(p => p.evidence)));
+        const allTriggers = Array.from(new Set(patterns.flatMap(p => p.triggers)));
+        const avgConfidence = patterns.reduce((sum, p) => sum + p.confidence, 0) / patterns.length;
+        
+        aggregatedPatterns.push({
+          type: bestPattern.type,
+          pattern: bestPattern.pattern,
+          triggers: allTriggers.slice(0, 5), // Top 5 triggers
+          evidence: allEvidence.slice(0, 3), // Top 3 evidence
+          confidence: avgConfidence
+        });
+      }
+    });
+    
+    return aggregatedPatterns;
+  }
+
+  /**
+   * Aggregates contextual responses from all analyses
+   */
+  private aggregateContextualResponses(analyses: ThreadAnalysisResult[]): ContextualResponse[] {
+    const allResponses = analyses.flatMap(a => a.contextualResponses || []);
+    
+    // Group by scenario and merge similar ones
+    const responseMap = new Map<string, ContextualResponse[]>();
+    
+    allResponses.forEach(response => {
+      const scenarioKey = response.scenario.toLowerCase().substring(0, 20); // Group similar scenarios
+      const existing = responseMap.get(scenarioKey) || [];
+      existing.push(response);
+      responseMap.set(scenarioKey, existing);
+    });
+    
+    const aggregatedResponses: ContextualResponse[] = [];
+    
+    responseMap.forEach((responses) => {
+      if (responses.length > 0) {
+        const bestResponse = responses.reduce((best, current) => 
+          current.confidence > best.confidence ? current : best
+        );
+        
+        const allPhrases = Array.from(new Set(responses.flatMap(r => r.key_phrases)));
+        const allEvidence = Array.from(new Set(responses.flatMap(r => r.evidence)));
+        const avgConfidence = responses.reduce((sum, r) => sum + r.confidence, 0) / responses.length;
+        
+        aggregatedResponses.push({
+          scenario: bestResponse.scenario,
+          typical_response_style: bestResponse.typical_response_style,
+          formality_level: bestResponse.formality_level,
+          key_phrases: allPhrases.slice(0, 6), // Top 6 phrases
+          evidence: allEvidence.slice(0, 3), // Top 3 evidence
+          confidence: avgConfidence
+        });
+      }
+    });
+    
+    return aggregatedResponses;
+  }
+
+  /**
+   * Aggregates temporal patterns from all analyses
+   */
+  private aggregateTemporalPatterns(analyses: ThreadAnalysisResult[]): TemporalPattern[] {
+    const allPatterns = analyses.flatMap(a => a.temporalPatterns || []);
+    
+    // Group by type and merge
+    const patternMap = new Map<string, TemporalPattern[]>();
+    
+    allPatterns.forEach(pattern => {
+      const existing = patternMap.get(pattern.type) || [];
+      existing.push(pattern);
+      patternMap.set(pattern.type, existing);
+    });
+    
+    const aggregatedPatterns: TemporalPattern[] = [];
+    
+    patternMap.forEach((patterns, type) => {
+      if (patterns.length > 0) {
+        const bestPattern = patterns.reduce((best, current) => 
+          current.confidence > best.confidence ? current : best
+        );
+        
+        const allTimes = Array.from(new Set(patterns.flatMap(p => p.specific_times || [])));
+        const allEvidence = Array.from(new Set(patterns.flatMap(p => p.evidence)));
+        const avgConfidence = patterns.reduce((sum, p) => sum + p.confidence, 0) / patterns.length;
+        
+        aggregatedPatterns.push({
+          type: bestPattern.type,
+          pattern: bestPattern.pattern,
+          specific_times: allTimes.slice(0, 5), // Top 5 times
+          evidence: allEvidence.slice(0, 3), // Top 3 evidence
+          confidence: avgConfidence
+        });
+      }
+    });
+    
+    return aggregatedPatterns;
+  }
+
+  /**
+   * Aggregates knowledge areas from all analyses
+   */
+  private aggregateKnowledgeAreas(analyses: ThreadAnalysisResult[]): KnowledgeArea[] {
+    const allAreas = analyses.flatMap(a => a.knowledgeAreas || []);
+    
+    // Group by domain and merge
+    const areaMap = new Map<string, KnowledgeArea[]>();
+    
+    allAreas.forEach(area => {
+      const domainKey = area.domain.toLowerCase().trim();
+      const existing = areaMap.get(domainKey) || [];
+      existing.push(area);
+      areaMap.set(domainKey, existing);
+    });
+    
+    const aggregatedAreas: KnowledgeArea[] = [];
+    
+    areaMap.forEach((areas) => {
+      if (areas.length > 0) {
+        // Use the highest expertise level found
+        const expertiseLevels = ['novice', 'intermediate', 'advanced', 'expert'];
+        const highestLevel = areas.reduce((highest, current) => {
+          const currentLevel = expertiseLevels.indexOf(current.expertise_level);
+          const highestLevel = expertiseLevels.indexOf(highest.expertise_level);
+          return currentLevel > highestLevel ? current : highest;
+        });
+        
+        const allEvidence = Array.from(new Set(areas.flatMap(a => a.evidence)));
+        const avgConfidence = areas.reduce((sum, a) => sum + a.confidence, 0) / areas.length;
+        
+        aggregatedAreas.push({
+          domain: highestLevel.domain,
+          expertise_level: highestLevel.expertise_level,
+          evidence: allEvidence.slice(0, 3), // Top 3 evidence
+          confidence: avgConfidence,
+          context: highestLevel.context
+        });
+      }
+    });
+    
+    return aggregatedAreas;
   }
 
   /**
@@ -475,6 +789,77 @@ Be conservative with confidence scores. Only assign high confidence (>0.8) when 
     };
   }
 
+  private inferMeetingPatterns(meetingInsights: ProfessionalInsight[]): PersonalContextProfile['professionalProfile']['meetingPatterns'] {
+    const evidence = meetingInsights.flatMap(i => i.evidence).join(' ').toLowerCase();
+    const values = meetingInsights.map(i => i.value.toLowerCase());
+    
+    // Extract preferred duration
+    let preferredDuration = 30; // default
+    if (evidence.includes('30 min') || evidence.includes('half hour')) {
+      preferredDuration = 30;
+    } else if (evidence.includes('60 min') || evidence.includes('one hour') || evidence.includes('1 hour')) {
+      preferredDuration = 60;
+    } else if (evidence.includes('15 min') || evidence.includes('quick')) {
+      preferredDuration = 15;
+    }
+    
+    // Extract preferred times
+    const preferredTimes: string[] = [];
+    if (evidence.includes('morning')) preferredTimes.push('9:00 AM', '10:00 AM');
+    if (evidence.includes('afternoon')) preferredTimes.push('2:00 PM', '3:00 PM');
+    if (evidence.includes('late morning')) preferredTimes.push('11:00 AM');
+    
+    // Determine meeting style
+    let meetingStyle: 'formal' | 'casual' | 'mixed' = 'mixed';
+    if (evidence.includes('formal') || evidence.includes('structured')) {
+      meetingStyle = 'formal';
+    } else if (evidence.includes('casual') || evidence.includes('informal')) {
+      meetingStyle = 'casual';
+    }
+    
+    return {
+      preferredDuration,
+      preferredTimes: preferredTimes.length > 0 ? preferredTimes : ['10:00 AM', '2:00 PM'],
+      meetingStyle
+    };
+  }
+
+  private inferWorkingHours(scheduleInsights: ProfessionalInsight[]): PersonalContextProfile['professionalProfile']['workingHours'] {
+    const evidence = scheduleInsights.flatMap(i => i.evidence).join(' ').toLowerCase();
+    
+    // Extract timezone
+    let timezone = 'UTC';
+    if (evidence.includes('pst') || evidence.includes('pacific')) timezone = 'America/Los_Angeles';
+    if (evidence.includes('est') || evidence.includes('eastern')) timezone = 'America/New_York';
+    if (evidence.includes('cst') || evidence.includes('central')) timezone = 'America/Chicago';
+    if (evidence.includes('mst') || evidence.includes('mountain')) timezone = 'America/Denver';
+    
+    // Extract work hours
+    let startHour = 9;
+    let endHour = 17;
+    
+    if (evidence.includes('8am') || evidence.includes('8:00')) startHour = 8;
+    if (evidence.includes('9am') || evidence.includes('9:00')) startHour = 9;
+    if (evidence.includes('10am') || evidence.includes('10:00')) startHour = 10;
+    
+    if (evidence.includes('5pm') || evidence.includes('17:00')) endHour = 17;
+    if (evidence.includes('6pm') || evidence.includes('18:00')) endHour = 18;
+    if (evidence.includes('7pm') || evidence.includes('19:00')) endHour = 19;
+    
+    // Extract work days
+    let workDays = [1, 2, 3, 4, 5]; // Default Monday-Friday
+    if (evidence.includes('weekend') && !evidence.includes('no weekend')) {
+      workDays = [0, 1, 2, 3, 4, 5, 6]; // Include weekends
+    }
+    
+    return {
+      timezone,
+      startHour,
+      endHour,
+      workDays
+    };
+  }
+
   private calculateOverallConfidence(parsed: any): number {
     const allInsights = [
       ...(parsed.communicationInsights || []),
@@ -503,6 +888,10 @@ Be conservative with confidence scores. Only assign high confidence (>0.8) when 
       relationshipInsights: [],
       professionalInsights: [],
       personalInsights: [],
+      behavioralPatterns: [],
+      contextualResponses: [],
+      temporalPatterns: [],
+      knowledgeAreas: [],
       confidence: 0
     };
   }

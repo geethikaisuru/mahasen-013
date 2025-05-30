@@ -488,6 +488,13 @@ export class PersonalContextService {
       },
       professionalProfile: this.buildProfessionalProfile(analysisResult.professionalProfile),
       personalPreferences: this.buildPersonalPreferences(analysisResult.personalPreferences),
+      
+      // Enhanced insights from comprehensive analysis
+      behavioralPatterns: analysisResult.behavioralPatterns || [],
+      contextualResponses: analysisResult.contextualResponses || [],
+      temporalPatterns: analysisResult.temporalPatterns || [],
+      knowledgeAreas: analysisResult.knowledgeAreas || [],
+      
       learningMetadata
     };
     

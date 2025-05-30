@@ -26,6 +26,12 @@ export interface PersonalContextProfile {
   // Personal preferences and patterns
   personalPreferences: PersonalPreferences;
   
+  // Enhanced insights from comprehensive analysis
+  behavioralPatterns: BehavioralPattern[];
+  contextualResponses: ContextualResponse[];
+  temporalPatterns: TemporalPattern[];
+  knowledgeAreas: KnowledgeArea[];
+  
   // Learning progress and metadata
   learningMetadata: LearningMetadata;
 }
@@ -179,37 +185,83 @@ export interface ThreadAnalysisResult {
   relationshipInsights: RelationshipInsight[];
   professionalInsights: ProfessionalInsight[];
   personalInsights: PersonalInsight[];
+  behavioralPatterns: BehavioralPattern[];
+  contextualResponses: ContextualResponse[];
+  temporalPatterns: TemporalPattern[];
+  knowledgeAreas: KnowledgeArea[];
   confidence: number;
 }
 
 export interface CommunicationInsight {
-  type: 'tone' | 'formality' | 'response_pattern' | 'style_variation';
+  type: 'tone' | 'formality' | 'greeting_style' | 'sign_off_style' | 'response_timing' | 'sentence_structure' | 'emoji_usage' | 'punctuation_style' | 'language_preference' | 'style_variation';
   description: string;
   evidence: string[];
   confidence: number;
   contactEmail?: string;
+  contextual_factors?: string[];
 }
 
 export interface RelationshipInsight {
   contactEmail: string;
   suggestedCategory: ContactCategory;
+  relationshipDynamics?: string;
+  communicationFrequency?: 'daily' | 'weekly' | 'monthly' | 'occasional' | 'rare';
+  responseTimePattern?: 'immediate' | 'within_hours' | 'business_hours' | 'delayed' | 'varies';
+  initiationPattern?: 'user_initiates' | 'contact_initiates' | 'mutual' | 'unknown';
   evidence: string[];
   confidence: number;
-  communicationPattern: string;
+  sharedContexts?: string[];
+  addressingStyle?: string;
+  communicationPattern?: string; // Keep for backward compatibility
 }
 
 export interface ProfessionalInsight {
-  type: 'role' | 'company' | 'expertise' | 'responsibility' | 'authority';
+  type: 'role' | 'company' | 'department' | 'responsibilities' | 'expertise' | 'authority_level' | 'decision_making' | 'meeting_preferences' | 'work_schedule' | 'project_involvement' | 'industry_knowledge' | 'networking_style' | 'management_level' | 'reporting_structure';
   value: string;
+  evidence: string[];
+  confidence: number;
+  context?: string;
+}
+
+export interface PersonalInsight {
+  type: 'schedule_preference' | 'availability_pattern' | 'family_information' | 'hobby_interest' | 'travel_preference' | 'food_preference' | 'entertainment_choice' | 'value_belief' | 'decision_making_style' | 'conflict_resolution' | 'stress_indicator' | 'privacy_boundary' | 'seasonal_pattern' | 'routine_habit' | 'brand_preference' | 'location_preference' | 'restaurant_preference' | 'shopping_habit' | 'daily_routine' | 'cultural_preference' | 'learning_preference' | 'information_consumption' | 'leisure_activity' | 'sports_team' | 'music_preference' | 'book_preference' | 'movie_preference' | 'technology_preference' | 'social_media_usage' | 'communication_channel_preference' | 'preference' | 'interest' | 'schedule' | 'decision_style' | 'communication_preference'; // Keep old types for backward compatibility
+  value: string;
+  evidence: string[];
+  confidence: number;
+  category?: 'personal' | 'family' | 'lifestyle' | 'preferences' | 'behavioral' | 'temporal' | 'cultural' | 'entertainment' | 'consumption';
+}
+
+export interface BehavioralPattern {
+  type: 'delegation_comfort' | 'request_handling' | 'invitation_response' | 'urgency_handling' | 'information_sharing' | 'boundary_setting' | 'escalation_trigger' | 'group_dynamics' | 'leadership_style' | 'collaboration_preference';
+  pattern: string;
+  triggers: string[];
   evidence: string[];
   confidence: number;
 }
 
-export interface PersonalInsight {
-  type: 'preference' | 'interest' | 'schedule' | 'decision_style' | 'communication_preference';
-  value: string;
+export interface ContextualResponse {
+  scenario: string;
+  typical_response_style: string;
+  formality_level: 'very_low' | 'low' | 'medium' | 'high' | 'very_high';
+  key_phrases: string[];
   evidence: string[];
   confidence: number;
+}
+
+export interface TemporalPattern {
+  type: 'response_timing' | 'availability_hours' | 'seasonal_behavior' | 'deadline_handling' | 'time_sensitivity';
+  pattern: string;
+  specific_times?: string[];
+  evidence: string[];
+  confidence: number;
+}
+
+export interface KnowledgeArea {
+  domain: string;
+  expertise_level: 'novice' | 'intermediate' | 'advanced' | 'expert';
+  evidence: string[];
+  confidence: number;
+  context?: string;
 }
 
 // Learning Progress and State Management
