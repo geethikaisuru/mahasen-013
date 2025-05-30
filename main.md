@@ -1,204 +1,253 @@
-// To run this code you need to install the following dependencies:
-// npm install @google/genai mime
-// npm install -D @types/node
-import {
-  GoogleGenAI,
-  LiveServerMessage,
-  MediaResolution,
-  Modality,
-  Session,
-} from '@google/genai';
-import mime from 'mime';
-import { writeFile } from 'fs';
-const responseQueue: LiveServerMessage[] = [];
-let session: Session | undefined = undefined;
+"""
+## Documentation
+Quickstart: https://github.com/google-gemini/cookbook/blob/main/quickstarts/Get_started_LiveAPI.py
 
-async function handleTurn(): Promise<LiveServerMessage[]> {
-  const turn: LiveServerMessage[] = [];
-  let done = false;
-  while (!done) {
-    const message = await waitMessage();
-    turn.push(message);
-    if (message.serverContent && message.serverContent.turnComplete) {
-      done = true;
-    }
-  }
-  return turn;
-}
+## Setup
 
-async function waitMessage(): Promise<LiveServerMessage> {
-  let done = false;
-  let message: LiveServerMessage | undefined = undefined;
-  while (!done) {
-    message = responseQueue.shift();
-    if (message) {
-      handleModelTurn(message);
-      done = true;
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  return message!;
-}
+To install the dependencies for this script, run:
 
-const audioParts: string[] = [];
-function handleModelTurn(message: LiveServerMessage) {
-  if(message.serverContent?.modelTurn?.parts) {
-    const part = message.serverContent?.modelTurn?.parts?.[0];
+```
+pip install google-genai opencv-python pyaudio pillow mss
+```
+"""
 
-    if(part?.fileData) {
-      console.log(`File: ${part?.fileData.fileUri}`);
-    }
+import os
+import asyncio
+import base64
+import io
+import traceback
 
-    if (part?.inlineData) {
-      const fileName = 'audio.wav';
-      const inlineData = part?.inlineData;
+import cv2
+import pyaudio
+import PIL.Image
+import mss
 
-      audioParts.push(inlineData?.data ?? '');
+import argparse
 
-      const buffer = convertToWav(audioParts, inlineData.mimeType ?? '');
-      saveBinaryFile(fileName, buffer);
-    }
+from google import genai
+from google.genai import types
 
-    if(part?.text) {
-      console.log(part?.text);
-    }
-  }
-}
+FORMAT = pyaudio.paInt16
+CHANNELS = 1
+SEND_SAMPLE_RATE = 16000
+RECEIVE_SAMPLE_RATE = 24000
+CHUNK_SIZE = 1024
 
-function saveBinaryFile(fileName: string, content: Buffer) {
-  writeFile(fileName, content, 'utf8', (err) => {
-    if (err) {
-      console.error(`Error writing file ${fileName}:`, err);
-      return;
-    }
-    console.log(`Appending stream content to file ${fileName}.`);
-  });
-}
+MODEL = "models/gemini-2.5-flash-preview-native-audio-dialog"
 
-interface WavConversionOptions {
-  numChannels : number,
-  sampleRate: number,
-  bitsPerSample: number
-}
+DEFAULT_MODE = "camera"
 
-function convertToWav(rawData: string[], mimeType: string) {
-  const options = parseMimeType(mimeType);
-  const dataLength = rawData.reduce((a, b) => a + b.length, 0);
-  const wavHeader = createWavHeader(dataLength, options);
-  const buffer = Buffer.concat(rawData.map(data => Buffer.from(data, 'base64')));
+client = genai.Client(
+    http_options={"api_version": "v1beta"},
+    api_key=os.environ.get("GEMINI_API_KEY"),
+)
 
-  return Buffer.concat([wavHeader, buffer]);
-}
 
-function parseMimeType(mimeType : string) {
-  const [fileType, ...params] = mimeType.split(';').map(s => s.trim());
-  const [_, format] = fileType.split('/');
-
-  const options : Partial<WavConversionOptions> = {
-    numChannels: 1,
-    bitsPerSample: 16,
-  };
-
-  if (format && format.startsWith('L')) {
-    const bits = parseInt(format.slice(1), 10);
-    if (!isNaN(bits)) {
-      options.bitsPerSample = bits;
-    }
-  }
-
-  for (const param of params) {
-    const [key, value] = param.split('=').map(s => s.trim());
-    if (key === 'rate') {
-      options.sampleRate = parseInt(value, 10);
-    }
-  }
-
-  return options as WavConversionOptions;
-}
-
-function createWavHeader(dataLength: number, options: WavConversionOptions) {
-  const {
-    numChannels,
-    sampleRate,
-    bitsPerSample,
-  } = options;
-
-  // http://soundfile.sapp.org/doc/WaveFormat
-
-  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
-  const blockAlign = numChannels * bitsPerSample / 8;
-  const buffer = Buffer.alloc(44);
-
-  buffer.write('RIFF', 0);                      // ChunkID
-  buffer.writeUInt32LE(36 + dataLength, 4);     // ChunkSize
-  buffer.write('WAVE', 8);                      // Format
-  buffer.write('fmt ', 12);                     // Subchunk1ID
-  buffer.writeUInt32LE(16, 16);                 // Subchunk1Size (PCM)
-  buffer.writeUInt16LE(1, 20);                  // AudioFormat (1 = PCM)
-  buffer.writeUInt16LE(numChannels, 22);        // NumChannels
-  buffer.writeUInt32LE(sampleRate, 24);         // SampleRate
-  buffer.writeUInt32LE(byteRate, 28);           // ByteRate
-  buffer.writeUInt16LE(blockAlign, 32);         // BlockAlign
-  buffer.writeUInt16LE(bitsPerSample, 34);      // BitsPerSample
-  buffer.write('data', 36);                     // Subchunk2ID
-  buffer.writeUInt32LE(dataLength, 40);         // Subchunk2Size
-
-  return buffer;
-}
-
-async function main() {
-  const ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-  });
-
-  const model = 'models/gemini-2.5-flash-preview-native-audio-dialog'
-
-  const config = {
-    responseModalities: [
-        Modality.AUDIO,
+CONFIG = types.LiveConnectConfig(
+    response_modalities=[
+        "AUDIO",
     ],
-    mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
-    speechConfig: {
-      voiceConfig: {
-        prebuiltVoiceConfig: {
-          voiceName: 'Zephyr',
-        }
-      }
-    },
-    contextWindowCompression: {
-        triggerTokens: '25600',
-        slidingWindow: { targetTokens: '12800' },
-    },
-  };
+    media_resolution="MEDIA_RESOLUTION_MEDIUM",
+    speech_config=types.SpeechConfig(
+        voice_config=types.VoiceConfig(
+            prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name="Zephyr")
+        )
+    ),
+    context_window_compression=types.ContextWindowCompressionConfig(
+        trigger_tokens=25600,
+        sliding_window=types.SlidingWindow(target_tokens=12800),
+    ),
+)
 
-  session = await ai.live.connect({
-    model,
-    callbacks: {
-      onopen: function () {
-        console.debug('Opened');
-      },
-      onmessage: function (message: LiveServerMessage) {
-        responseQueue.push(message);
-      },
-      onerror: function (e: ErrorEvent) {
-        console.debug('Error:', e.message);
-      },
-      onclose: function (e: CloseEvent) {
-        console.debug('Close:', e.reason);
-      },
-    },
-    config
-  });
+pya = pyaudio.PyAudio()
 
-  session.sendClientContent({
-    turns: [
-      `INSERT_INPUT_HERE`
-    ]
-  });
 
-  await handleTurn();
+class AudioLoop:
+    def __init__(self, video_mode=DEFAULT_MODE):
+        self.video_mode = video_mode
 
-  session.close();
-}
-main();
+        self.audio_in_queue = None
+        self.out_queue = None
+
+        self.session = None
+
+        self.send_text_task = None
+        self.receive_audio_task = None
+        self.play_audio_task = None
+
+    async def send_text(self):
+        while True:
+            text = await asyncio.to_thread(
+                input,
+                "message > ",
+            )
+            if text.lower() == "q":
+                break
+            await self.session.send(input=text or ".", end_of_turn=True)
+
+    def _get_frame(self, cap):
+        # Read the frameq
+        ret, frame = cap.read()
+        # Check if the frame was read successfully
+        if not ret:
+            return None
+        # Fix: Convert BGR to RGB color space
+        # OpenCV captures in BGR but PIL expects RGB format
+        # This prevents the blue tint in the video feed
+        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = PIL.Image.fromarray(frame_rgb)  # Now using RGB frame
+        img.thumbnail([1024, 1024])
+
+        image_io = io.BytesIO()
+        img.save(image_io, format="jpeg")
+        image_io.seek(0)
+
+        mime_type = "image/jpeg"
+        image_bytes = image_io.read()
+        return {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode()}
+
+    async def get_frames(self):
+        # This takes about a second, and will block the whole program
+        # causing the audio pipeline to overflow if you don't to_thread it.
+        cap = await asyncio.to_thread(
+            cv2.VideoCapture, 0
+        )  # 0 represents the default camera
+
+        while True:
+            frame = await asyncio.to_thread(self._get_frame, cap)
+            if frame is None:
+                break
+
+            await asyncio.sleep(1.0)
+
+            await self.out_queue.put(frame)
+
+        # Release the VideoCapture object
+        cap.release()
+
+    def _get_screen(self):
+        sct = mss.mss()
+        monitor = sct.monitors[0]
+
+        i = sct.grab(monitor)
+
+        mime_type = "image/jpeg"
+        image_bytes = mss.tools.to_png(i.rgb, i.size)
+        img = PIL.Image.open(io.BytesIO(image_bytes))
+
+        image_io = io.BytesIO()
+        img.save(image_io, format="jpeg")
+        image_io.seek(0)
+
+        image_bytes = image_io.read()
+        return {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode()}
+
+    async def get_screen(self):
+
+        while True:
+            frame = await asyncio.to_thread(self._get_screen)
+            if frame is None:
+                break
+
+            await asyncio.sleep(1.0)
+
+            await self.out_queue.put(frame)
+
+    async def send_realtime(self):
+        while True:
+            msg = await self.out_queue.get()
+            await self.session.send(input=msg)
+
+    async def listen_audio(self):
+        mic_info = pya.get_default_input_device_info()
+        self.audio_stream = await asyncio.to_thread(
+            pya.open,
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=SEND_SAMPLE_RATE,
+            input=True,
+            input_device_index=mic_info["index"],
+            frames_per_buffer=CHUNK_SIZE,
+        )
+        if __debug__:
+            kwargs = {"exception_on_overflow": False}
+        else:
+            kwargs = {}
+        while True:
+            data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
+            await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+
+    async def receive_audio(self):
+        "Background task to reads from the websocket and write pcm chunks to the output queue"
+        while True:
+            turn = self.session.receive()
+            async for response in turn:
+                if data := response.data:
+                    self.audio_in_queue.put_nowait(data)
+                    continue
+                if text := response.text:
+                    print(text, end="")
+
+            # If you interrupt the model, it sends a turn_complete.
+            # For interruptions to work, we need to stop playback.
+            # So empty out the audio queue because it may have loaded
+            # much more audio than has played yet.
+            while not self.audio_in_queue.empty():
+                self.audio_in_queue.get_nowait()
+
+    async def play_audio(self):
+        stream = await asyncio.to_thread(
+            pya.open,
+            format=FORMAT,
+            channels=CHANNELS,
+            rate=RECEIVE_SAMPLE_RATE,
+            output=True,
+        )
+        while True:
+            bytestream = await self.audio_in_queue.get()
+            await asyncio.to_thread(stream.write, bytestream)
+
+    async def run(self):
+        try:
+            async with (
+                client.aio.live.connect(model=MODEL, config=CONFIG) as session,
+                asyncio.TaskGroup() as tg,
+            ):
+                self.session = session
+
+                self.audio_in_queue = asyncio.Queue()
+                self.out_queue = asyncio.Queue(maxsize=5)
+
+                send_text_task = tg.create_task(self.send_text())
+                tg.create_task(self.send_realtime())
+                tg.create_task(self.listen_audio())
+                if self.video_mode == "camera":
+                    tg.create_task(self.get_frames())
+                elif self.video_mode == "screen":
+                    tg.create_task(self.get_screen())
+
+                tg.create_task(self.receive_audio())
+                tg.create_task(self.play_audio())
+
+                await send_text_task
+                raise asyncio.CancelledError("User requested exit")
+
+        except asyncio.CancelledError:
+            pass
+        except ExceptionGroup as EG:
+            self.audio_stream.close()
+            traceback.print_exception(EG)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--mode",
+        type=str,
+        default=DEFAULT_MODE,
+        help="pixels to stream from",
+        choices=["camera", "screen", "none"],
+    )
+    args = parser.parse_args()
+    main = AudioLoop(video_mode=args.mode)
+    asyncio.run(main.run())
