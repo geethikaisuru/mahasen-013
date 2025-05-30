@@ -4,18 +4,43 @@ import * as THREE from 'three';
 interface GlossyCircleProps {
   className?: string;
   isExpanded?: boolean;
+  voiceState?: 'idle' | 'connecting' | 'connected' | 'listening' | 'speaking' | 'error';
+  audioVolume?: number;
+  onClick?: () => void;
 }
 
-export const GlossyCircle: React.FC<GlossyCircleProps> = ({ className = '', isExpanded = false }) => {
+export const GlossyCircle: React.FC<GlossyCircleProps> = ({ 
+  className = '', 
+  isExpanded = false, 
+  voiceState = 'idle',
+  audioVolume = 0,
+  onClick
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const materialRef = useRef<THREE.ShaderMaterial | null>(null);
+  const circleRef = useRef<THREE.Mesh | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  
   const size = isExpanded ? 40 : 120; // Size reduced by 3x when expanded
   
   useEffect(() => {
     if (!containerRef.current) return;
 
+    // Clean up previous renderer if it exists
+    if (rendererRef.current) {
+      if (containerRef.current.contains(rendererRef.current.domElement)) {
+        containerRef.current.removeChild(rendererRef.current.domElement);
+      }
+      rendererRef.current.dispose();
+      rendererRef.current = null;
+    }
+
     // Setup scene
     const scene = new THREE.Scene();
+    sceneRef.current = scene;
     
     // Setup camera
     const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
@@ -29,16 +54,20 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({ className = '', isEx
     });
     renderer.setSize(size, size);
     renderer.setPixelRatio(window.devicePixelRatio);
+    rendererRef.current = renderer;
     containerRef.current.appendChild(renderer.domElement);
     
     // Create circle geometry
     const geometry = new THREE.CircleGeometry(1, 64);
     
-    // Create shader material with glossy gradient and enhanced inner glow
+    // Create shader material with dynamic colors based on voice state
     const material = new THREE.ShaderMaterial({
       uniforms: {
         iTime: { value: 0 },
-        iResolution: { value: new THREE.Vector2(size, size) }
+        iResolution: { value: new THREE.Vector2(size, size) },
+        voiceState: { value: 0 }, // 0: idle, 1: listening, 2: connecting, 3: connected, 4: speaking, 5: error
+        audioVolume: { value: 0 },
+        scale: { value: 1.0 }
       },
       vertexShader: `
         varying vec2 vUv;
@@ -50,12 +79,18 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({ className = '', isEx
       fragmentShader: `
         uniform float iTime;
         uniform vec2 iResolution;
+        uniform float voiceState;
+        uniform float audioVolume;
+        uniform float scale;
         varying vec2 vUv;
         
         void main() {
           vec2 fragCoord = vUv * iResolution;
           float mr = min(iResolution.x, iResolution.y);
           vec2 uv = (fragCoord * 2.0 - iResolution) / mr;
+          
+          // Apply scale based on audio volume
+          uv /= scale;
           
           float d = -iTime * 0.5;
           float a = 0.0;
@@ -64,14 +99,41 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({ className = '', isEx
             d += sin(uv.y * i + a);
           }
           d += iTime * 0.5;
+          
+          // Base colors
           vec3 col = vec3(cos(uv * vec2(d, a)) * 0.6 + 0.4, cos(a + d) * 0.5 + 0.5);
           col = cos(col * cos(vec3(d, a, 2.5)) * 0.5 + 0.5);
           
-          // Add inner glow with 50% more intensity
+          // State-based color modifications
+          if (voiceState == 1.0) {
+            // Listening - greenish color with pulse
+            vec3 greenTint = vec3(0.3, 1.0, 0.4);
+            float pulse = sin(iTime * 3.0) * 0.3 + 0.7;
+            col = mix(col, greenTint, 0.6 * pulse);
+          } else if (voiceState == 2.0) {
+            // Connecting - yellow/orange color
+            vec3 connectingTint = vec3(1.0, 0.8, 0.2);
+            col = mix(col, connectingTint, 0.5);
+          } else if (voiceState == 3.0) {
+            // Connected - blue color
+            vec3 connectedTint = vec3(0.3, 0.5, 1.0);
+            col = mix(col, connectedTint, 0.5);
+          } else if (voiceState == 4.0) {
+            // Speaking - enhanced default with audio visualization
+            float speakingPulse = sin(iTime * 8.0 + audioVolume * 10.0) * 0.4 + 0.6;
+            col *= speakingPulse;
+          } else if (voiceState == 5.0) {
+            // Error - red color
+            vec3 errorTint = vec3(1.0, 0.3, 0.3);
+            col = mix(col, errorTint, 0.5);
+          }
+          
+          // Add inner glow with enhanced intensity based on state
           float dist = length(uv);
+          float glowIntensity = voiceState == 1.0 ? 1.0 : 0.75;
           float glow = smoothstep(0.75, 1.0, dist);
-          vec3 glowColor = vec3(0.5, 0.8, 1.0);
-          col = mix(col, col + glowColor, glow * 0.75);
+          vec3 glowColor = voiceState == 1.0 ? vec3(0.4, 1.0, 0.5) : vec3(0.5, 0.8, 1.0);
+          col = mix(col, col + glowColor, glow * glowIntensity);
           
           gl_FragColor = vec4(col, 1.0);
         }
@@ -79,15 +141,57 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({ className = '', isEx
       transparent: true
     });
     
+    materialRef.current = material;
+    
     // Create mesh from geometry and material
     const circle = new THREE.Mesh(geometry, material);
+    circleRef.current = circle;
     scene.add(circle);
     
     // Animation loop
     const animate = () => {
-      requestAnimationFrame(animate);
-      material.uniforms.iTime.value += 0.01;
-      circle.position.y = Math.sin(Date.now() * 0.001) * 0.05;
+      animationFrameRef.current = requestAnimationFrame(animate);
+      
+      if (material.uniforms) {
+        material.uniforms.iTime.value += 0.01;
+        
+        // Update voice state uniform
+        let stateValue = 0;
+        switch (voiceState) {
+          case 'listening': stateValue = 1; break;
+          case 'connecting': stateValue = 2; break;
+          case 'connected': stateValue = 3; break;
+          case 'speaking': stateValue = 4; break;
+          case 'error': stateValue = 5; break;
+          default: stateValue = 0;
+        }
+        material.uniforms.voiceState.value = stateValue;
+        
+        // Update audio volume and scale
+        material.uniforms.audioVolume.value = audioVolume;
+        
+        // Calculate scale based on voice state and audio volume
+        let targetScale = 1.0;
+        if (voiceState === 'listening') {
+          targetScale = 1.0 + audioVolume * 0.3; // Scale up based on input volume
+        } else if (voiceState === 'speaking') {
+          targetScale = 1.0 + audioVolume * 0.5; // More dramatic scaling for speech
+        } else if (voiceState === 'connecting') {
+          targetScale = 1.1; // Slightly larger when connecting
+        }
+        
+        // Smooth interpolation to target scale
+        const currentScale = material.uniforms.scale.value;
+        material.uniforms.scale.value = currentScale + (targetScale - currentScale) * 0.1;
+        
+        // Animate position for speaking state
+        if (voiceState === 'speaking') {
+          circle.position.y = Math.sin(Date.now() * 0.003) * 0.1 + Math.sin(audioVolume * 20) * 0.05;
+        } else {
+          circle.position.y = Math.sin(Date.now() * 0.001) * 0.05;
+        }
+      }
+      
       renderer.render(scene, camera);
     };
     
@@ -95,30 +199,73 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({ className = '', isEx
     
     // Handle window resize
     const handleResize = () => {
-      const { current } = containerRef;
-      if (!current) return;
+      if (!renderer || !material.uniforms) return;
       renderer.setSize(size, size);
       material.uniforms.iResolution.value = new THREE.Vector2(size, size);
     };
-    
+
     window.addEventListener('resize', handleResize);
     
     // Clean up
     return () => {
-      if (containerRef.current) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      
+      window.removeEventListener('resize', handleResize);
+      
+      // Properly dispose of Three.js resources
+      if (geometry) geometry.dispose();
+      if (material) material.dispose();
+      
+      // Clean up scene
+      if (scene) {
+        scene.clear();
+      }
+      
+      // Remove DOM element safely
+      if (renderer && containerRef.current && containerRef.current.contains(renderer.domElement)) {
         containerRef.current.removeChild(renderer.domElement);
       }
-      window.removeEventListener('resize', handleResize);
-      geometry.dispose();
-      material.dispose();
+      
+      // Dispose renderer
+      if (renderer) {
+        renderer.dispose();
+      }
     };
-  }, [size]); // Added size as dependency
+  }, [size, voiceState, audioVolume]); // Added voiceState and audioVolume as dependencies
+  
+  // Get status text based on voice state
+  const getStatusText = () => {
+    switch (voiceState) {
+      case 'listening': return 'Listening...';
+      case 'connecting': return 'Connecting...';
+      case 'connected': return 'Connected';
+      case 'speaking': return 'Speaking...';
+      case 'error': return 'Error';
+      default: return 'Talk to GAIA';
+    }
+  };
+
+  // Get text color based on voice state
+  const getTextColor = () => {
+    switch (voiceState) {
+      case 'listening': return 'from-green-400 to-emerald-300';
+      case 'connecting': return 'from-yellow-400 to-orange-300';
+      case 'connected': return 'from-blue-400 to-cyan-300';
+      case 'speaking': return 'from-purple-400 to-pink-300';
+      case 'error': return 'from-red-400 to-rose-300';
+      default: return 'from-blue-400 to-cyan-300';
+    }
+  };
   
   return (
     <div 
       className={`group flex flex-col items-center ${className}`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onClick={onClick}
     >
       <div 
         ref={containerRef}
@@ -128,18 +275,18 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({ className = '', isEx
         style={{
           width: `${size}px`,
           height: `${size}px`,
-          filter: 'drop-shadow(0 0 20px rgba(100, 200, 255, 0.3))',
+          filter: `drop-shadow(0 0 20px rgba(100, 200, 255, ${voiceState === 'listening' ? '0.6' : '0.3'}))`,
           willChange: 'transform'
         }}
       />
       <div 
-        className={`mt-2 font-montserrat font-bold text-lg bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent transition-all duration-300 ease-out ${
-          isHovered 
+        className={`mt-2 font-montserrat font-bold text-lg bg-gradient-to-r ${getTextColor()} bg-clip-text text-transparent transition-all duration-300 ease-out ${
+          isHovered || voiceState !== 'idle'
             ? 'opacity-100 transform translate-y-0' 
             : 'opacity-0 transform -translate-y-4'
         }`}
       >
-        <strong>Talk to GAIA</strong>
+        <strong>{getStatusText()}</strong>
       </div>
     </div>
   );
