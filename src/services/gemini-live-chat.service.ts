@@ -31,6 +31,7 @@ export class GeminiLiveChatService {
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private microphone: MediaStreamAudioSourceNode | null = null;
+  private gainNode: GainNode | null = null;
   private audioWorkletNode: AudioWorkletNode | null = null;
   private mediaStream: MediaStream | null = null;
   private volumeData: Float32Array = new Float32Array(256);
@@ -61,7 +62,7 @@ export class GeminiLiveChatService {
   constructor(config: LiveChatConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model || "gemini-2.0-flash-live-001";
-    this.systemInstruction = config.systemInstruction || "Your Name is Mahasen, You are a helpful AI Assistant.";
+    this.systemInstruction = config.systemInstruction || "You are Mahasen, a highly intelligent and helpful AI assistant. You engage in natural, conversational dialogue and provide thoughtful, accurate responses. You're friendly, professional, and always aim to be as helpful as possible. Keep your responses concise but informative, especially in voice conversations. You can help with a wide range of topics including answering questions, providing explanations, offering advice, and assisting with various tasks.";
     
     this.ai = new GoogleGenAI({
       apiKey: this.apiKey,
@@ -132,9 +133,16 @@ export class GeminiLiveChatService {
 
       // Create microphone source
       this.microphone = this.audioContext.createMediaStreamSource(this.mediaStream);
-      this.microphone.connect(this.analyser);
+      
+      // Create gain node to boost microphone volume
+      this.gainNode = this.audioContext.createGain();
+      this.gainNode.gain.value = 2.5; // Increase microphone volume by 2.5x
+      
+      // Connect microphone -> gain -> analyser
+      this.microphone.connect(this.gainNode);
+      this.gainNode.connect(this.analyser);
 
-      console.log('Microphone connected to analyser');
+      console.log('Microphone connected with gain boost:', this.gainNode.gain.value);
 
       // Load and create audio worklet for processing
       await this.audioContext.audioWorklet.addModule(
@@ -142,9 +150,9 @@ export class GeminiLiveChatService {
       );
 
       this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
-      this.microphone.connect(this.audioWorkletNode);
+      this.gainNode.connect(this.audioWorkletNode);
 
-      console.log('Audio worklet node created and connected');
+      console.log('Audio worklet node created and connected with gain boost');
 
       // Handle audio data from worklet
       this.audioWorkletNode.port.onmessage = (event) => {
@@ -193,15 +201,22 @@ export class GeminiLiveChatService {
 
           if (inputChannel) {
             for (let i = 0; i < inputChannel.length; i++) {
-              this.buffer[this.bufferIndex] = inputChannel[i];
+              // Apply some normalization to handle the increased gain
+              let sample = inputChannel[i];
+              
+              // Soft clipping to prevent harsh distortion from gain boost
+              if (sample > 0.95) sample = 0.95;
+              if (sample < -0.95) sample = -0.95;
+              
+              this.buffer[this.bufferIndex] = sample;
               this.bufferIndex++;
 
               if (this.bufferIndex >= this.bufferSize) {
-                // Convert to 16-bit PCM
+                // Convert to 16-bit PCM with improved quality handling
                 const pcmData = new Int16Array(this.bufferSize);
                 for (let j = 0; j < this.bufferSize; j++) {
-                  const sample = Math.max(-1, Math.min(1, this.buffer[j]));
-                  pcmData[j] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                  const normalizedSample = Math.max(-1, Math.min(1, this.buffer[j]));
+                  pcmData[j] = normalizedSample < 0 ? normalizedSample * 0x8000 : normalizedSample * 0x7FFF;
                 }
 
                 this.port.postMessage({
@@ -237,7 +252,7 @@ export class GeminiLiveChatService {
           sum += normalized * normalized;
         }
         const rms = Math.sqrt(sum / timeData.length);
-        const volume = Math.min(rms * 5, 1); // Amplify the signal for better visualization
+        const volume = Math.min(rms * 3, 1); // Adjusted for boosted input - reduced from 5 to 3
 
         //console.log('Audio volume:', volume.toFixed(3)); // Debug logging
 
@@ -707,6 +722,11 @@ export class GeminiLiveChatService {
     // Reset audio state and clear accumulated data
     this.isPlayingAudio = false;
     this.accumulatedAudioData = new Int16Array(0);
+
+    if (this.gainNode) {
+      this.gainNode.disconnect();
+      this.gainNode = null;
+    }
 
     if (this.audioWorkletNode) {
       this.audioWorkletNode.disconnect();
