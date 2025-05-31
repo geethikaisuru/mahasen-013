@@ -19,6 +19,7 @@ export interface AudioVisualizationData {
   volume: number;
   isListening: boolean;
   isSpeaking: boolean;
+  speakingVolume?: number;
 }
 
 export class GeminiLiveChatService {
@@ -42,6 +43,11 @@ export class GeminiLiveChatService {
   private accumulatedAudioData: Int16Array = new Int16Array(0);
   private isPlayingAudio = false;
   private currentAudioSource: AudioBufferSourceNode | null = null;
+  
+  // Add these for speech activity detection
+  private speechAnalyser: AnalyserNode | null = null;
+  private speechVolumeData: Float32Array = new Float32Array(256);
+  private currentSpeechVolume: number = 0;
   
   // Callbacks
   private onStateChange?: (state: LiveChatState) => void;
@@ -254,12 +260,42 @@ export class GeminiLiveChatService {
         const rms = Math.sqrt(sum / timeData.length);
         const volume = Math.min(rms * 3, 1); // Adjusted for boosted input - reduced from 5 to 3
 
+        // Detect speech activity during AI playback
+        let speakingVolume = 0;
+        if (this.state === 'speaking' && this.speechAnalyser) {
+          const speechTimeData = new Uint8Array(this.speechAnalyser.frequencyBinCount);
+          this.speechAnalyser.getByteTimeDomainData(speechTimeData);
+          
+          // Calculate speech volume (RMS) from AI audio output
+          let speechSum = 0;
+          for (let i = 0; i < speechTimeData.length; i++) {
+            const normalized = (speechTimeData[i] - 128) / 128;
+            speechSum += normalized * normalized;
+          }
+          const speechRms = Math.sqrt(speechSum / speechTimeData.length);
+          speakingVolume = Math.min(speechRms * 5, 1); // Amplify speech detection
+          
+          // Smooth the speech volume to avoid jitter
+          this.currentSpeechVolume = this.currentSpeechVolume * 0.7 + speakingVolume * 0.3;
+          speakingVolume = this.currentSpeechVolume;
+          
+          // Debug logging to help with testing
+          if (speakingVolume > 0.05) {
+            console.log('🎤 Speech detected:', speakingVolume.toFixed(3));
+          }
+        } else {
+          // Gradually fade out speech volume when not speaking
+          this.currentSpeechVolume = this.currentSpeechVolume * 0.9;
+          speakingVolume = this.currentSpeechVolume;
+        }
+
         //console.log('Audio volume:', volume.toFixed(3)); // Debug logging
 
         this.onAudioVisualization?.({
           volume: volume,
           isListening: this.state === 'listening',
-          isSpeaking: this.state === 'speaking'
+          isSpeaking: this.state === 'speaking',
+          speakingVolume: speakingVolume
         });
       }
 
@@ -461,6 +497,13 @@ export class GeminiLiveChatService {
         this.currentAudioSource = null;
       }
       
+      // Create speech analyser if it doesn't exist
+      if (!this.speechAnalyser) {
+        this.speechAnalyser = this.audioPlayer.createAnalyser();
+        this.speechAnalyser.fftSize = 512;
+        this.speechAnalyser.smoothingTimeConstant = 0.3;
+      }
+      
       // Create audio buffer from accumulated data
       const sampleRate = this.RECEIVE_SAMPLE_RATE;
       const numChannels = 1;
@@ -475,7 +518,11 @@ export class GeminiLiveChatService {
       // Create and play audio source
       const source = this.audioPlayer.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(this.audioPlayer.destination);
+      
+      // Connect source -> analyser -> destination for speech activity detection
+      source.connect(this.speechAnalyser);
+      this.speechAnalyser.connect(this.audioPlayer.destination);
+      
       this.currentAudioSource = source;
       
       this.isPlayingAudio = true;

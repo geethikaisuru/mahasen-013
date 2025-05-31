@@ -10,7 +10,8 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
   const [audioData, setAudioData] = useState<AudioVisualizationData>({
     volume: 0,
     isListening: false,
-    isSpeaking: false
+    isSpeaking: false,
+    speakingVolume: 0
   });
   const [transcript, setTranscript] = useState<string>('');
   const [response, setResponse] = useState<string>('');

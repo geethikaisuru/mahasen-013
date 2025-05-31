@@ -140,6 +140,7 @@ export default function LiveVoiceChatPage() {
             className="cursor-pointer"
             voiceState={state}
             audioVolume={audioData.volume}
+            speakingVolume={audioData.speakingVolume || 0}
             onClick={toggleConversation}
           />
 
