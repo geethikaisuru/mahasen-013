@@ -6,6 +6,7 @@ interface GlossyCircleProps {
   isExpanded?: boolean;
   voiceState?: 'idle' | 'connecting' | 'connected' | 'listening' | 'speaking' | 'error';
   audioVolume?: number;
+  speakingVolume?: number;
   onClick?: () => void;
 }
 
@@ -14,6 +15,7 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
   isExpanded = false, 
   voiceState = 'idle',
   audioVolume = 0,
+  speakingVolume = 0,
   onClick
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -23,6 +25,11 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
   const materialRef = useRef<THREE.ShaderMaterial | null>(null);
   const circleRef = useRef<THREE.Mesh | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  
+  // Add state for CSS transform scaling
+  const [circleScale, setCircleScale] = useState(1);
+  const currentScaleRef = useRef(1);
+  const targetScaleRef = useRef(1);
   
   const size = isExpanded ? 40 : 120; // Size reduced by 3x when expanded
   
@@ -67,6 +74,7 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
         iResolution: { value: new THREE.Vector2(size, size) },
         voiceState: { value: 0 }, // 0: idle, 1: listening, 2: connecting, 3: connected, 4: speaking, 5: error
         audioVolume: { value: 0 },
+        speakingVolume: { value: 0 }, // Add speakingVolume uniform
         scale: { value: 1.0 }
       },
       vertexShader: `
@@ -81,6 +89,7 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
         uniform vec2 iResolution;
         uniform float voiceState;
         uniform float audioVolume;
+        uniform float speakingVolume;
         uniform float scale;
         varying vec2 vUv;
         
@@ -119,9 +128,16 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
             vec3 connectedTint = vec3(0.3, 0.5, 1.0);
             col = mix(col, connectedTint, 0.5);
           } else if (voiceState == 4.0) {
-            // Speaking - enhanced default with audio visualization
-            float speakingPulse = sin(iTime * 8.0 + audioVolume * 10.0) * 0.4 + 0.6;
-            col *= speakingPulse;
+            // Speaking - enhanced default with speech activity detection
+            // Only pulse when there's actual speech audio (speakingVolume > threshold)
+            float speechThreshold = 0.05;
+            if (speakingVolume > speechThreshold) {
+              float speakingPulse = sin(iTime * 8.0 + speakingVolume * 15.0) * 0.5 + 0.8;
+              col *= speakingPulse;
+            } else {
+              // Fade to normal when no speech detected - reduced dimming
+              col *= 0.9;
+            }
           } else if (voiceState == 5.0) {
             // Error - red color
             vec3 errorTint = vec3(1.0, 0.3, 0.3);
@@ -167,29 +183,40 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
         }
         material.uniforms.voiceState.value = stateValue;
         
-        // Update audio volume and scale
+        // Update audio volume uniforms
         material.uniforms.audioVolume.value = audioVolume;
+        material.uniforms.speakingVolume.value = speakingVolume;
         
-        // Calculate scale based on voice state and audio volume
+        // Calculate scale based on voice state and appropriate volume
         let targetScale = 1.0;
         if (voiceState === 'listening') {
           targetScale = 1.0 + audioVolume * 0.3; // Scale up based on input volume
         } else if (voiceState === 'speaking') {
-          targetScale = 1.0 + audioVolume * 0.5; // More dramatic scaling for speech
+          // Use speakingVolume for speech-responsive scaling
+          const speechThreshold = 0.05;
+          if (speakingVolume > speechThreshold) {
+            targetScale = 1.0 + speakingVolume * 0.8; // More dramatic scaling for actual speech
+          } else {
+            targetScale = 1.0; // Normal size during pauses
+          }
         } else if (voiceState === 'connecting') {
           targetScale = 1.1; // Slightly larger when connecting
         }
         
-        // Smooth interpolation to target scale
-        const currentScale = material.uniforms.scale.value;
-        material.uniforms.scale.value = currentScale + (targetScale - currentScale) * 0.1;
+        // Update target scale reference
+        targetScaleRef.current = targetScale;
         
-        // Animate position for speaking state
-        if (voiceState === 'speaking') {
-          circle.position.y = Math.sin(Date.now() * 0.003) * 0.1 + Math.sin(audioVolume * 20) * 0.05;
-        } else {
-          circle.position.y = Math.sin(Date.now() * 0.001) * 0.05;
-        }
+        // Smooth interpolation for CSS transform scale
+        const currentScale = currentScaleRef.current;
+        const newScale = currentScale + (targetScale - currentScale) * 0.15;
+        currentScaleRef.current = newScale;
+        setCircleScale(newScale);
+        
+        // Keep shader scale at 1.0 since we're now using CSS transforms
+        material.uniforms.scale.value = 1.0;
+        
+        // Remove continuous position animation - only add subtle base movement
+        circle.position.y = Math.sin(Date.now() * 0.0005) * 0.02;
       }
       
       renderer.render(scene, camera);
@@ -234,7 +261,7 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
         renderer.dispose();
       }
     };
-  }, [size, voiceState, audioVolume]); // Added voiceState and audioVolume as dependencies
+  }, [size, voiceState, audioVolume, speakingVolume]); // Added voiceState, audioVolume, and speakingVolume as dependencies
   
   // Get status text based on voice state
   const getStatusText = () => {
@@ -244,7 +271,7 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
       case 'connected': return 'Connected';
       case 'speaking': return 'Speaking...';
       case 'error': return 'Error';
-      default: return 'Talk to GAIA';
+      default: return 'Talk to Mahasen';
     }
   };
 
@@ -269,14 +296,15 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
     >
       <div 
         ref={containerRef}
-        className={`rounded-full overflow-hidden transition-all duration-300 ease-out ${
+        className={`rounded-full overflow-hidden transition-all duration-200 ease-out ${
           isHovered ? 'transform -translate-y-2' : ''
         }`}
         style={{
           width: `${size}px`,
           height: `${size}px`,
           filter: `drop-shadow(0 0 20px rgba(100, 200, 255, ${voiceState === 'listening' ? '0.6' : '0.3'}))`,
-          willChange: 'transform'
+          willChange: 'transform',
+          transform: `scale(${circleScale}) ${isHovered ? 'translateY(-8px)' : ''}`,
         }}
       />
       <div 
