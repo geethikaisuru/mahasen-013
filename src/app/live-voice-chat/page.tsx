@@ -179,84 +179,34 @@ export default function LiveVoiceChatPage() {
       <div className="flex flex-1 gap-8">
         {/* Voice Interface */}
         <div className="flex-1 flex flex-col items-center justify-center gap-8">
-          {/* Main GlossyCircle */}
+          {/* Main GlossyCircle - Made bigger */}
           <GlossyCircle 
-            className="cursor-pointer"
+            className="cursor-pointer scale-150"
             voiceState={state}
             audioVolume={audioData.volume}
             speakingVolume={audioData.speakingVolume || 0}
             onClick={toggleConversation}
           />
 
-          {/* Main Control Button */}
-          <div className="flex flex-col items-center gap-4">
-            <Button
-              size="lg"
-              className={cn(
-                "rounded-full w-20 h-20 transition-all duration-300",
-                getConversationButtonColor()
-              )}
-              onClick={toggleConversation}
-              disabled={isConnecting}
-            >
-              {isActive ? (
-                <Square className="h-8 w-8" />
-              ) : (
-                <Play className="h-8 w-8" />
-              )}
-            </Button>
-            
-            <span className="text-lg font-medium">{getButtonText()}</span>
-          </div>
 
-          {/* Speaker Control */}
-          <div className="flex items-center gap-4">
-            <Button
-              size="lg"
-              variant="outline"
-              className={cn(
-                "rounded-full w-16 h-16",
-                !audioAvailable && "opacity-50 cursor-not-allowed"
-              )}
-              onClick={toggleSpeaker}
-              disabled={!audioAvailable}
-              title={!audioAvailable ? "Audio not available" : isSpeakerOn ? "Mute speaker" : "Unmute speaker"}
-            >
-              {isSpeakerOn ? (
-                <Volume2 className="h-6 w-6" />
-              ) : (
-                <VolumeX className="h-6 w-6" />
-              )}
-            </Button>
-            {!audioAvailable && (
+
+          {/* Audio Volume Visualization */}
+          {(isListening || isSpeaking) && audioData.volume > 0 && (
+            <div className="flex items-center justify-center gap-2">
               <span className="text-sm text-muted-foreground">
-                Audio unavailable
+                {isListening ? 'Your voice:' : 'Mahasen volume:'}
               </span>
-            )}
-          </div>
-
-          {/* Status Text */}
-          <div className="text-center space-y-2">
-            <p className="text-lg font-medium">{getStatusText()}</p>
-            
-            {/* Audio Volume Visualization */}
-            {(isListening || isSpeaking) && audioData.volume > 0 && (
-              <div className="flex items-center justify-center gap-2">
-                <span className="text-sm text-muted-foreground">
-                  {isListening ? 'Your voice:' : 'Mahasen volume:'}
-                </span>
-                <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
-                  <div 
-                    className={cn(
-                      "h-full transition-all duration-100",
-                      isListening ? "bg-green-500" : "bg-purple-500"
-                    )}
-                    style={{ width: `${Math.min(audioData.volume * 100, 100)}%` }}
-                  />
-                </div>
+              <div className="w-32 h-2 bg-muted rounded-full overflow-hidden">
+                <div 
+                  className={cn(
+                    "h-full transition-all duration-100",
+                    isListening ? "bg-green-500" : "bg-purple-500"
+                  )}
+                  style={{ width: `${Math.min(audioData.volume * 100, 100)}%` }}
+                />
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* Conversation Panel */}
@@ -268,69 +218,87 @@ export default function LiveVoiceChatPage() {
                 Real-time chat with Mahasen
               </p>
             </CardHeader>
-            <CardContent className="flex-1 overflow-hidden flex flex-col">
-              <div className="flex-1 overflow-y-auto space-y-4 max-h-[500px] min-h-[300px]">
-                {conversationHistory.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    <p>Start a conversation to see the chat history!</p>
-                    <p className="text-xs mt-2">The conversation will be continuous once started.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3 pr-2">
-                    {conversationHistory.map((message, index) => (
-                      <div
-                        key={index}
-                        className={cn(
-                          "p-3 rounded-lg",
-                          message.type === 'user'
-                            ? "bg-blue-50 dark:bg-blue-900/20 ml-4"
-                            : "bg-gray-50 dark:bg-gray-800 mr-4"
-                        )}
-                      >
-                        <div className="flex justify-between items-start mb-1">
-                          <div className="text-xs font-medium opacity-70">
-                            {message.type === 'user' ? 'You' : 'Mahasen'}
-                          </div>
-                          <div className="text-xs opacity-50">
-                            {message.timestamp.toLocaleTimeString()}
-                          </div>
-                        </div>
-                        <div className="text-sm">{message.text}</div>
-                      </div>
-                    ))}
-                    <div ref={conversationEndRef} />
-                  </div>
+            <CardContent className="flex-1 overflow-hidden flex flex-col items-center justify-center gap-6">
+              {/* Main Control Button */}
+              <Button
+                size="lg"
+                className={cn(
+                  "rounded-full w-20 h-20 transition-all duration-300",
+                  getConversationButtonColor()
                 )}
+                onClick={toggleConversation}
+                disabled={isConnecting}
+              >
+                {isActive ? (
+                  <Square className="h-8 w-8" />
+                ) : (
+                  <Play className="h-8 w-8" />
+                )}
+              </Button>
+              
+              <span className="text-lg font-medium">{getButtonText()}</span>
+
+              {/* Status Text */}
+              <div className="text-center space-y-2">
+                <p className="text-lg font-medium">{getStatusText()}</p>
+              </div>
+
+              {/* Speaker Control */}
+              {/*<div className="flex items-center gap-4">
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className={cn(
+                    "rounded-full w-16 h-16",
+                    !audioAvailable && "opacity-50 cursor-not-allowed"
+                  )}
+                  onClick={toggleSpeaker}
+                  disabled={!audioAvailable}
+                  title={!audioAvailable ? "Audio not available" : isSpeakerOn ? "Mute speaker" : "Unmute speaker"}
+                >
+                  {isSpeakerOn ? (
+                    <Volume2 className="h-6 w-6" />
+                  ) : (
+                    <VolumeX className="h-6 w-6" />
+                  )}
+                </Button>
+                {!audioAvailable && (
+                  <span className="text-sm text-muted-foreground">
+                    Audio unavailable
+                  </span>
+                )}
+              </div>*/}
+
+              {/* Connection Status Bar */}
+              <div className="flex items-right justify-right">
+                <div className={cn(
+                  "flex items-center gap-2 px-4 py-2 rounded-full text-sm",
+                  isConnected && "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300",
+                  isConnecting && "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300",
+                  hasError && "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300",
+                  isIdle && "bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-300"
+                )}>
+                  <div className={cn(
+                    "w-2 h-2 rounded-full",
+                    isConnected && "bg-green-500",
+                    isConnecting && "bg-yellow-500 animate-pulse",
+                    hasError && "bg-red-500",
+                    isIdle && "bg-gray-400"
+                  )} />
+                  <span>
+                    {isConnected && "Live connection active"}
+                    {isConnecting && "Establishing connection..."}
+                    {hasError && "Connection failed"}
+                    {isIdle && "Ready to connect"}
+                  </span>
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
       </div>
 
-      {/* Connection Status Bar */}
-      <div className="flex items-center justify-center">
-        <div className={cn(
-          "flex items-center gap-2 px-4 py-2 rounded-full text-sm",
-          isConnected && "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300",
-          isConnecting && "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-300",
-          hasError && "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300",
-          isIdle && "bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-300"
-        )}>
-          <div className={cn(
-            "w-2 h-2 rounded-full",
-            isConnected && "bg-green-500",
-            isConnecting && "bg-yellow-500 animate-pulse",
-            hasError && "bg-red-500",
-            isIdle && "bg-gray-400"
-          )} />
-          <span>
-            {isConnected && "Live connection active"}
-            {isConnecting && "Establishing connection..."}
-            {hasError && "Connection failed"}
-            {isIdle && "Ready to connect"}
-          </span>
-        </div>
-      </div>
+
     </div>
   );
 } 
