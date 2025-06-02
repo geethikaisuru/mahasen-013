@@ -19,7 +19,6 @@ import { Separator } from '@/components/ui/separator';
 import { Button } from './ui/button';
 import { ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useSidebar } from '@/components/ui/sidebar';
-import { GlossyCircle } from '@/components/ui/glossy-circle';
 
 export function AppSidebar() {
   const pathname = usePathname();
@@ -61,21 +60,21 @@ export function AppSidebar() {
                       isActive={pathname.startsWith(item.href)}
                       tooltip={{ children: item.label, side: 'right', align: 'center' }}
                       className={cn(
-                        "justify-start smooth-transition group relative min-h-[60px]",
+                        "justify-start smooth-transition group relative",
                         "hover:bg-sidebar-accent/50 hover:scale-[1.02]",
                         "data-[active=true]:bg-gradient-to-r data-[active=true]:from-primary/20 data-[active=true]:to-secondary/10",
                         "data-[active=true]:glow-border data-[active=true]:border-primary/30"
                       )}
                     >
-                      {/* Use GlossyCircle for Live Voice Chat */}
-                      <div className="flex items-center justify-center mr-3">
-                        <GlossyCircle 
-                          isExpanded={true} 
-                          className="scale-50"
-                        />
-                      </div>
+                      {/* Use regular icon for Live Voice Chat like other nav items */}
+                      <item.icon className={cn(
+                        "h-5 w-5 smooth-transition",
+                        pathname.startsWith(item.href) 
+                          ? "text-primary glow-icon" 
+                          : "text-sidebar-foreground/70 group-hover:text-primary group-hover:glow-icon"
+                      )} />
                       <span className={cn(
-                        "editorial-text font-light",
+                        "ml-3 editorial-text font-light",
                         open || isMobile ? "inline" : "hidden group-data-[collapsible=icon]:hidden",
                         pathname.startsWith(item.href) 
                           ? "text-primary font-medium" 
