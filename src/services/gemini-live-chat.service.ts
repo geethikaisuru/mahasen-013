@@ -39,12 +39,24 @@ export class GeminiLiveChatService {
   private isRunning = false;
   private audioPlayer: AudioContext | null = null;
   
-  // Real-time audio streaming
+  // Advanced real-time audio streaming with seamless buffering
   private audioQueue: Int16Array[] = [];
   private isPlayingAudio = false;
   private currentAudioSource: AudioBufferSourceNode | null = null;
   private nextPlayTime = 0;
-  private audioChunkDuration = 0.1; // 100ms chunks for real-time feel
+  private audioChunkDuration = 0.05; // 50ms chunks for ultra-low latency
+  private isFirstChunk = true;
+  
+  // Seamless audio concatenation system
+  private accumulatedAudioData: Int16Array[] = [];
+  private minimumBufferSize = 1200; // 50ms at 24kHz for smooth streaming
+  private isBuffering = true;
+  private playbackStarted = false;
+  
+  // Audio timing optimization
+  private audioStartTime = 0;
+  private totalAudioDuration = 0;
+  private scheduledEndTime = 0;
   
   // Message handling
   private messageProcessor: ((message: LiveServerMessage) => void) | null = null;
@@ -400,8 +412,8 @@ export class GeminiLiveChatService {
         if (this.state === 'listening') {
           console.log('🎤➡️🗣️ AI started responding');
           this.setState('speaking');
-          // Reset the next play time for real-time streaming
-          this.nextPlayTime = 0;
+          // Reset playback state for new response
+          this.resetPlaybackState();
         }
         
         for (const part of parts) {
@@ -411,22 +423,27 @@ export class GeminiLiveChatService {
           }
 
           if (part.inlineData && part.inlineData.data) {
-            console.log('🎵 Gemini audio response received - processing for real-time playback');
+            console.log('🎵 Gemini audio response received - processing for seamless playback');
             this.handleAudioResponse(part.inlineData);
           }
         }
       }
 
-      // Handle generation complete - just log it, audio streaming is already happening
+      // Handle generation complete
       if (message.serverContent?.generationComplete) {
-        console.log('✅ Generation complete - audio streaming should be ongoing');
-        // Don't transition states here as audio might still be playing
+        console.log('✅ Generation complete - letting remaining audio finish');
+        // Don't reset here, let audio finish naturally
       }
 
-      // Handle turn completion - audio streaming should handle the transition
+      // Handle turn completion
       if (message.serverContent?.turnComplete) {
-        console.log('🏁 Turn complete - letting audio streaming finish naturally');
-        // Don't force state transitions here, let the audio chunks finish
+        console.log('🏁 Turn complete - audio should finish naturally');
+        // Mark that no more audio is coming
+        setTimeout(() => {
+          if (this.accumulatedAudioData.length === 0 && this.playbackStarted) {
+            this.checkPlaybackCompletion();
+          }
+        }, 100);
       }
 
       // Handle interruptions
@@ -455,24 +472,18 @@ export class GeminiLiveChatService {
     console.log('🔄 Started message processing');
   }
 
-  // Handle audio response from Gemini
+  // Handle audio response from Gemini with new buffering system
   private handleAudioResponse(inlineData: any) {
     try {
       if (inlineData.data) {
         this.accumulateAudioChunk(inlineData.data, inlineData.mimeType || 'audio/pcm;rate=24000');
-        
-        // Start playing immediately if we're not already playing and have chunks
-        if (!this.isPlayingAudio && this.audioQueue.length > 0) {
-          console.log('🎵 Starting real-time audio playback');
-          this.playNextAudioChunk();
-        }
       }
     } catch (error) {
       console.error('❌ Error handling audio response:', error);
     }
   }
 
-  // Accumulate audio chunk data
+  // Accumulate audio chunk data with advanced buffering
   private accumulateAudioChunk(rawData: string, mimeType: string): void {
     try {
       if (!rawData || rawData.length === 0) {
@@ -499,156 +510,210 @@ export class GeminiLiveChatService {
         paddedBytes[bytes.length] = 0;
         
         const newPcmData = new Int16Array(paddedBytes.buffer);
-        
-        if (newPcmData.length === 0) {
-          console.log('⚠️ No PCM samples generated, skipping');
-          return;
-        }
-        
-        // Queue the audio chunk immediately for real-time playback
-        this.audioQueue.push(newPcmData);
-        console.log(`🎵 Queued audio chunk: ${newPcmData.length} samples, queue length: ${this.audioQueue.length}`);
+        this.processNewAudioChunk(newPcmData);
         
       } else {
         const newPcmData = new Int16Array(bytes.buffer);
-        
-        if (newPcmData.length === 0) {
-          console.log('⚠️ No PCM samples generated, skipping');
-          return;
-        }
-        
-        // Queue the audio chunk immediately for real-time playback
-        this.audioQueue.push(newPcmData);
-        console.log(`🎵 Queued audio chunk: ${newPcmData.length} samples, queue length: ${this.audioQueue.length}`);
+        this.processNewAudioChunk(newPcmData);
       }
       
     } catch (error) {
       console.error('❌ Error accumulating audio:', error);
-      console.log('🔍 Audio chunk info:', {
-        rawDataLength: rawData?.length || 0,
-        mimeType,
-        currentQueueLength: this.audioQueue.length
-      });
     }
   }
 
-  // Play the next audio chunk in the queue
-  private async playNextAudioChunk(): Promise<void> {
-    if (!this.audioPlayer || this.audioQueue.length === 0) {
-      if (!this.isPlayingAudio) {
-        console.log('🔇 No more audio chunks, transitioning back to listening');
-        this.setState('listening');
-      }
+  // Process new audio chunk with intelligent buffering
+  private processNewAudioChunk(audioData: Int16Array): void {
+    if (audioData.length === 0) {
+      console.log('⚠️ No PCM samples generated, skipping');
       return;
     }
+
+    // Add to accumulated buffer
+    this.accumulatedAudioData.push(audioData);
     
+    const totalSamples = this.accumulatedAudioData.reduce((sum, chunk) => sum + chunk.length, 0);
+    console.log(`🎵 Accumulated ${audioData.length} samples, total: ${totalSamples}`);
+
+    // If we're still buffering, check if we have enough data to start
+    if (this.isBuffering) {
+      if (totalSamples >= this.minimumBufferSize || this.accumulatedAudioData.length >= 3) {
+        console.log('🎵 Buffer ready, starting seamless playback');
+        this.isBuffering = false;
+        this.startSeamlessPlayback();
+      }
+    } else {
+      // Continue feeding the playback system
+      this.feedPlaybackSystem();
+    }
+  }
+
+  // Start seamless playback with optimal buffering
+  private async startSeamlessPlayback(): Promise<void> {
+    if (!this.audioPlayer || this.accumulatedAudioData.length === 0 || this.playbackStarted) {
+      return;
+    }
+
     try {
       // Ensure audio player context is running
       if (this.audioPlayer.state === 'suspended') {
         console.log('🎵 Resuming suspended audio player context');
         await this.audioPlayer.resume();
       }
-      
-      // Get the next audio chunk
-      const audioChunk = this.audioQueue.shift();
-      if (!audioChunk) {
-        console.log('⚠️ No audio chunk found in queue');
-        if (!this.isPlayingAudio) {
-          this.setState('listening');
-        }
-        return;
-      }
-      
-      // Validate audio data before creating buffer
-      if (audioChunk.length === 0) {
-        console.log('⚠️ Audio data is empty, skipping and playing next chunk');
-        this.playNextAudioChunk(); // Try next chunk
-        return;
-      }
-      
-      const sampleRate = this.RECEIVE_SAMPLE_RATE;
-      const numChannels = 1;
-      const audioDataLength = audioChunk.length;
-      
-      console.log(`🎵 Playing audio chunk: ${audioDataLength} samples at ${sampleRate}Hz`);
-      
-      const audioBuffer = this.audioPlayer.createBuffer(numChannels, audioDataLength, sampleRate);
-      
-      const channelData = audioBuffer.getChannelData(0);
-      for (let i = 0; i < audioDataLength; i++) {
-        channelData[i] = audioChunk[i] / 32768;
-      }
-      
-      const source = this.audioPlayer.createBufferSource();
-      source.buffer = audioBuffer;
-      
-      // Create a gain node for volume control
-      const gainNode = this.audioPlayer.createGain();
-      gainNode.gain.value = 1.0; // Full volume
-      source.connect(gainNode);
-      gainNode.connect(this.audioPlayer.destination);
-      
-      // Calculate when to start this chunk for seamless playback
-      const currentTime = this.audioPlayer.currentTime;
-      const startTime = Math.max(currentTime + 0.01, this.nextPlayTime); // Small buffer to prevent gaps
-      
-      this.currentAudioSource = source;
+
+      this.playbackStarted = true;
       this.isPlayingAudio = true;
       this.setState('speaking');
       
-      // Update next play time for seamless concatenation
-      const chunkDuration = audioDataLength / sampleRate;
-      this.nextPlayTime = startTime + chunkDuration;
+      // Start with current time plus minimal delay
+      this.audioStartTime = this.audioPlayer.currentTime + 0.002; // 2ms minimal delay
+      this.nextPlayTime = this.audioStartTime;
+      this.totalAudioDuration = 0;
+
+      console.log('🎵 Starting seamless audio playback');
       
-      source.onended = () => {
-        console.log('🎵 Audio chunk playback completed, playing next...');
-        this.currentAudioSource = null;
-        
-        // Play next chunk if available
-        if (this.audioQueue.length > 0) {
-          this.playNextAudioChunk();
-        } else {
-          // No more chunks, but check if generation is still ongoing
-          this.isPlayingAudio = false;
-          if (this.state === 'speaking') {
-            // Wait a bit for more chunks, then transition to listening
-            setTimeout(() => {
-              if (this.audioQueue.length === 0 && !this.isPlayingAudio) {
-                console.log('🔇 No more audio chunks received, transitioning to listening');
-                this.setState('listening');
-              }
-            }, 500); // Wait 500ms for more chunks
-          }
-        }
-      };
-      
-      source.start(startTime);
-      console.log(`🔊 Audio chunk started at ${startTime}, duration: ${chunkDuration}s`);
+      // Start playing chunks immediately
+      this.playNextSeamlessChunk();
       
     } catch (error) {
-      console.error('❌ Error playing audio chunk:', error);
-      
-      // Try to continue with next chunk if available
-      if (this.audioQueue.length > 0) {
-        this.playNextAudioChunk();
-      } else {
-        this.isPlayingAudio = false;
-        this.setState('listening');
-      }
+      console.error('❌ Error starting seamless playback:', error);
+      this.resetPlaybackState();
     }
   }
 
-  // Play audio from the queue (for backward compatibility)
-  private async playAudioFromQueue(): Promise<void> {
-    if (this.audioQueue.length === 0) {
-      // No audio to play, transition back to listening
-      console.log('🔇 No audio in queue, transitioning back to listening');
-      this.setState('listening');
+  // Play next chunk in seamless manner
+  private async playNextSeamlessChunk(): Promise<void> {
+    if (!this.audioPlayer || !this.playbackStarted) {
       return;
     }
-    
-    // Start playing the first chunk
-    this.playNextAudioChunk();
+
+    // Get the next chunk to play
+    const audioChunk = this.getNextOptimalChunk();
+    if (!audioChunk) {
+      // No more chunks available, wait for more or finish
+      this.scheduleNextChunkCheck();
+      return;
+    }
+
+    try {
+      const sampleRate = this.RECEIVE_SAMPLE_RATE;
+      const audioBuffer = this.audioPlayer.createBuffer(1, audioChunk.length, sampleRate);
+      const channelData = audioBuffer.getChannelData(0);
+      
+      // Convert Int16 to Float32 with optimal precision
+      for (let i = 0; i < audioChunk.length; i++) {
+        channelData[i] = audioChunk[i] / 32768;
+      }
+
+      const source = this.audioPlayer.createBufferSource();
+      source.buffer = audioBuffer;
+      
+      // Create gain node for volume control
+      const gainNode = this.audioPlayer.createGain();
+      gainNode.gain.value = 1.0;
+      source.connect(gainNode);
+      gainNode.connect(this.audioPlayer.destination);
+
+      // Calculate precise timing for seamless concatenation
+      const chunkDuration = audioChunk.length / sampleRate;
+      const startTime = this.nextPlayTime;
+      
+      // Update timing for next chunk
+      this.nextPlayTime = startTime + chunkDuration;
+      this.totalAudioDuration += chunkDuration;
+      this.scheduledEndTime = this.nextPlayTime;
+
+      // Set up completion handler
+      source.onended = () => {
+        this.currentAudioSource = null;
+        // Immediately try to play next chunk
+        this.playNextSeamlessChunk();
+      };
+
+      this.currentAudioSource = source;
+      source.start(startTime);
+      
+      console.log(`🔊 Seamless chunk: ${audioChunk.length} samples, duration: ${chunkDuration.toFixed(3)}s, start: ${startTime.toFixed(3)}`);
+      
+    } catch (error) {
+      console.error('❌ Error playing seamless chunk:', error);
+      this.playNextSeamlessChunk(); // Try to continue
+    }
+  }
+
+  // Get next optimal chunk for playback
+  private getNextOptimalChunk(): Int16Array | null {
+    if (this.accumulatedAudioData.length === 0) {
+      return null;
+    }
+
+    // For optimal streaming, prefer smaller chunks that arrive first
+    const chunk = this.accumulatedAudioData.shift();
+    return chunk || null;
+  }
+
+  // Schedule check for next chunk
+  private scheduleNextChunkCheck(): void {
+    if (!this.playbackStarted) return;
+
+    // Wait a very short time for more chunks
+    setTimeout(() => {
+      if (this.accumulatedAudioData.length > 0) {
+        this.playNextSeamlessChunk();
+      } else {
+        // Check if we should finish playback
+        this.checkPlaybackCompletion();
+      }
+    }, 10); // Very short 10ms check interval
+  }
+
+  // Check if playback should be completed
+  private checkPlaybackCompletion(): void {
+    if (!this.audioPlayer || !this.playbackStarted) return;
+
+    const currentTime = this.audioPlayer.currentTime;
+    const timeSinceLastChunk = currentTime - this.scheduledEndTime;
+
+    // If we haven't received chunks for a reasonable time, transition to listening
+    if (timeSinceLastChunk > 0.1 && this.accumulatedAudioData.length === 0) {
+      console.log('🔇 No more audio chunks, completing playback');
+      this.resetPlaybackState();
+      this.setState('listening');
+    } else if (this.accumulatedAudioData.length > 0) {
+      // More chunks arrived, continue playing
+      this.playNextSeamlessChunk();
+    } else {
+      // Wait a bit more
+      this.scheduleNextChunkCheck();
+    }
+  }
+
+  // Feed the playback system with new chunks
+  private feedPlaybackSystem(): void {
+    if (!this.playbackStarted && !this.isBuffering) {
+      this.startSeamlessPlayback();
+    }
+  }
+
+  // Reset playback state
+  private resetPlaybackState(): void {
+    this.isFirstChunk = true;
+    this.nextPlayTime = 0;
+    this.playbackStarted = false;
+    this.isBuffering = true;
+    this.accumulatedAudioData = [];
+    this.audioStartTime = 0;
+    this.totalAudioDuration = 0;
+    this.scheduledEndTime = 0;
+    this.isPlayingAudio = false;
+  }
+
+  // Legacy method - redirect to new system
+  private async playNextAudioChunk(): Promise<void> {
+    // This method is kept for compatibility but redirects to new system
+    if (!this.playbackStarted) {
+      this.startSeamlessPlayback();
+    }
   }
 
   // Stop current audio playback
@@ -657,10 +722,12 @@ export class GeminiLiveChatService {
       this.currentAudioSource.stop();
       this.currentAudioSource = null;
     }
-    this.isPlayingAudio = false;
+    
     if (clearQueue) {
       this.audioQueue = [];
     }
+    
+    this.resetPlaybackState();
   }
 
   // Send audio data to Gemini

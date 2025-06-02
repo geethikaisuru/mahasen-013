@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { GlossyCircle } from "@/components/ui/glossy-circle";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function LiveVoiceChatPage() {
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const conversationEndRef = useRef<HTMLDivElement>(null);
 
   // Initialize live chat
   const {
@@ -35,6 +36,16 @@ export default function LiveVoiceChatPage() {
   } = useGeminiLiveChat({
     autoInit: true
   });
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (conversationEndRef.current) {
+      conversationEndRef.current.scrollIntoView({ 
+        behavior: 'smooth',
+        block: 'end'
+      });
+    }
+  }, [conversationHistory]);
 
   const toggleSpeaker = () => {
     setIsSpeakerOn(!isSpeakerOn);
@@ -257,37 +268,40 @@ export default function LiveVoiceChatPage() {
                 Real-time chat with Mahasen
               </p>
             </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto space-y-4">
-              {conversationHistory.length === 0 ? (
-                <div className="text-center text-muted-foreground py-8">
-                  <p>Start a conversation to see the chat history!</p>
-                  <p className="text-xs mt-2">The conversation will be continuous once started.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {conversationHistory.map((message, index) => (
-                    <div
-                      key={index}
-                      className={cn(
-                        "p-3 rounded-lg",
-                        message.type === 'user'
-                          ? "bg-blue-50 dark:bg-blue-900/20 ml-4"
-                          : "bg-gray-50 dark:bg-gray-800 mr-4"
-                      )}
-                    >
-                      <div className="flex justify-between items-start mb-1">
-                        <div className="text-xs font-medium opacity-70">
-                          {message.type === 'user' ? 'You' : 'Mahasen'}
+            <CardContent className="flex-1 overflow-hidden flex flex-col">
+              <div className="flex-1 overflow-y-auto space-y-4 max-h-[500px] min-h-[300px]">
+                {conversationHistory.length === 0 ? (
+                  <div className="text-center text-muted-foreground py-8">
+                    <p>Start a conversation to see the chat history!</p>
+                    <p className="text-xs mt-2">The conversation will be continuous once started.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 pr-2">
+                    {conversationHistory.map((message, index) => (
+                      <div
+                        key={index}
+                        className={cn(
+                          "p-3 rounded-lg",
+                          message.type === 'user'
+                            ? "bg-blue-50 dark:bg-blue-900/20 ml-4"
+                            : "bg-gray-50 dark:bg-gray-800 mr-4"
+                        )}
+                      >
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="text-xs font-medium opacity-70">
+                            {message.type === 'user' ? 'You' : 'Mahasen'}
+                          </div>
+                          <div className="text-xs opacity-50">
+                            {message.timestamp.toLocaleTimeString()}
+                          </div>
                         </div>
-                        <div className="text-xs opacity-50">
-                          {message.timestamp.toLocaleTimeString()}
-                        </div>
+                        <div className="text-sm">{message.text}</div>
                       </div>
-                      <div className="text-sm">{message.text}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                    <div ref={conversationEndRef} />
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
