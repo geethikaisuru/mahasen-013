@@ -1,3 +1,114 @@
+# Live Voice Chat Fixes
+
+## Issues Fixed
+
+### 1. `navigator.mediaDevices` is undefined error
+**Problem**: The error `Cannot read properties of undefined (reading 'getUserMedia')` occurred when trying to access microphone.
+
+**Root Cause**: The `navigator.mediaDevices` API is only available in secure contexts (HTTPS or localhost) and modern browsers.
+
+**Solution**: 
+- Added checks for `window.isSecureContext` before attempting microphone access
+- Added fallback error handling for when `navigator.mediaDevices` is undefined
+- Added proper error messages explaining the requirements
+
+### 2. Audio worklet node not available
+**Problem**: Audio features would fail completely if microphone initialization failed.
+
+**Root Cause**: The service tried to use audio worklet even when audio initialization failed.
+
+**Solution**:
+- Modified `startConversation()` to gracefully handle audio initialization failures
+- Allow the service to continue in text-only mode when audio is unavailable
+- Added `isAudioAvailable()` method to check audio status
+- Updated audio-related methods to check availability before attempting operations
+
+### 3. Poor error handling and user feedback
+**Problem**: Users had no clear indication of why voice features weren't working.
+
+**Solution**:
+- Added comprehensive error messages explaining common issues (HTTPS requirement, browser compatibility)
+- Added visual indicators in the UI when audio is unavailable
+- Added warning alerts for different scenarios (insecure context, audio unavailable)
+- Added `audioAvailable` and `audioError` states to the hook
+
+## New Features Added
+
+### Audio Availability Detection
+- `GeminiLiveChatService.checkMicrophoneAvailability()` - Static method to check if microphone access is possible
+- `isAudioAvailable()` - Instance method to check if audio features are currently working
+- Early detection of audio issues before attempting to start conversation
+
+### Graceful Degradation
+- Service can now operate in text-only mode when audio is unavailable
+- UI adapts to show appropriate warnings and disable audio-related controls
+- Connection to Gemini API works even without audio capabilities
+
+### Enhanced Error Messages
+- Specific error messages for different failure scenarios:
+  - Insecure context (HTTP instead of HTTPS)
+  - Browser compatibility issues
+  - Permission denied
+  - AudioContext not supported
+  - AudioWorklet not supported
+
+### Updated UI Components
+- Warning alerts for audio unavailability
+- HTTPS requirement notifications
+- Disabled speaker controls when audio is unavailable
+- Status text updates to indicate text-only mode
+
+## Technical Changes
+
+### Service Layer (`gemini-live-chat.service.ts`)
+- Added secure context validation
+- Added proper cleanup for failed audio initialization
+- Enhanced error handling with specific error types
+- Added audio availability checks throughout audio-related methods
+- Modified state management to support "connected" state without audio
+
+### Hook Layer (`use-gemini-live-chat.ts`)
+- Added `audioAvailable` and `audioError` state tracking
+- Added `clearAudioError()` action
+- Enhanced error callback to distinguish audio-related errors
+- Added early audio availability checking on mount
+
+### UI Layer (`live-voice-chat/page.tsx`)
+- Added audio warning displays
+- Added HTTPS requirement warnings
+- Updated status text to indicate audio availability
+- Disabled audio controls when audio is unavailable
+- Added helpful tooltips and error messages
+
+## Usage Notes
+
+### Development Environment
+- Use `https://localhost:3000` or similar for development
+- Ensure your `.env.local` has a valid `NEXT_PUBLIC_GEMINI_API_KEY`
+
+### Production Environment
+- Must be served over HTTPS
+- Users need to grant microphone permissions
+- Fallback to text-only mode works automatically
+
+### Browser Compatibility
+- Requires browsers that support:
+  - MediaDevices API
+  - AudioContext/WebAudioAPI
+  - AudioWorklet
+  - WebSocket
+- Gracefully degrades in unsupported browsers
+
+## Error Messages Reference
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| "Microphone access requires a secure context" | Running on HTTP | Use HTTPS or localhost |
+| "Media devices API not available" | Browser doesn't support WebRTC | Use a modern browser |
+| "AudioContext not supported" | Browser doesn't support Web Audio | Use a modern browser |
+| "AudioWorklet not supported" | Browser doesn't support AudioWorklet | Use Chrome 66+ or equivalent |
+| "Permission denied" | User blocked microphone access | Grant permission in browser settings |
+
 # Live Voice Chat Fixes - AI Not Responding Issue
 
 ## Problem Analysis

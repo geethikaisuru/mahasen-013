@@ -104,14 +104,25 @@ export class GeminiLiveChatService {
     try {
       console.log('Requesting microphone access...');
       
-      // Check if running in a secure context
+      // Check if we're in a secure context
       if (!window.isSecureContext) {
-        throw new Error('MediaDevices API requires a secure context (HTTPS)');
+        throw new Error(
+          'Microphone access requires a secure context (HTTPS). Please:\n' +
+          '- Use HTTPS instead of HTTP\n' +
+          '- Use localhost for development\n' +
+          '- Ensure your site has a valid SSL certificate'
+        );
       }
       
       // Check if mediaDevices API is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('MediaDevices API is not supported in this browser');
+        throw new Error(
+          'Media devices API not available. This could be due to:\n' +
+          '- Running in an insecure context (use HTTPS)\n' +
+          '- Browser compatibility issues\n' +
+          '- Permissions not granted\n' +
+          '- Browser does not support WebRTC'
+        );
       }
       
       // Get user media with explicit constraints
@@ -127,13 +138,14 @@ export class GeminiLiveChatService {
 
       console.log('Microphone access granted');
 
-      // Create audio context for input
-      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContext) {
-        throw new Error('AudioContext is not supported in this browser');
+      // Check if AudioContext is available
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) {
+        throw new Error('AudioContext not supported in this browser');
       }
-      
-      this.audioContext = new AudioContext({
+
+      // Create audio context for input
+      this.audioContext = new AudioContextClass({
         sampleRate: this.SEND_SAMPLE_RATE,
       });
 
@@ -145,7 +157,7 @@ export class GeminiLiveChatService {
       console.log('Audio context created, state:', this.audioContext.state);
 
       // Create audio context for output
-      this.audioPlayer = new AudioContext({
+      this.audioPlayer = new AudioContextClass({
         sampleRate: this.RECEIVE_SAMPLE_RATE,
       });
 
@@ -169,88 +181,47 @@ export class GeminiLiveChatService {
 
       // Check if AudioWorklet is supported
       if (!this.audioContext.audioWorklet) {
-        console.warn('AudioWorklet is not supported in this browser, using ScriptProcessor fallback');
-        this.setupScriptProcessorFallback();
-      } else {
-        // Load and create audio worklet for processing
-        await this.audioContext.audioWorklet.addModule(
-          URL.createObjectURL(new Blob([this.getAudioWorkletCode()], { type: 'application/javascript' }))
-        );
-
-        this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
-        this.gainNode.connect(this.audioWorkletNode);
-
-        console.log('Audio worklet node created and connected with gain boost');
-
-        // Handle audio data from worklet
-        this.audioWorkletNode.port.onmessage = (event) => {
-          if (event.data.type === 'audio-data' && this.isRunning) {
-            this.sendAudioToGemini(event.data.audioData);
-          }
-        };
+        throw new Error('AudioWorklet not supported in this browser');
       }
+
+      // Load and create audio worklet for processing
+      await this.audioContext.audioWorklet.addModule(
+        URL.createObjectURL(new Blob([this.getAudioWorkletCode()], { type: 'application/javascript' }))
+      );
+
+      this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
+      this.gainNode.connect(this.audioWorkletNode);
+
+      console.log('Audio worklet node created and connected with gain boost');
+
+      // Handle audio data from worklet
+      this.audioWorkletNode.port.onmessage = (event) => {
+        if (event.data.type === 'audio-data' && this.isRunning) {
+          this.sendAudioToGemini(event.data.audioData);
+        }
+      };
 
       this.startAudioVisualization();
       console.log('Audio initialization complete');
       
     } catch (error) {
       console.error('Audio initialization error:', error);
-      this.onError?.(new Error('Failed to initialize audio: ' + (error as Error).message));
-      this.setState('error');
-      throw error; // Re-throw to allow the caller to handle it
-    }
-  }
-
-  // Set up ScriptProcessor as a fallback for browsers without AudioWorklet
-  private setupScriptProcessorFallback(): void {
-    if (!this.audioContext || !this.gainNode) return;
-    
-    console.log('Setting up ScriptProcessor fallback');
-    
-    // Create script processor node (deprecated but widely supported)
-    const scriptProcessor = this.audioContext.createScriptProcessor(this.CHUNK_SIZE, 1, 1);
-    
-    // Connect gain node to script processor
-    this.gainNode.connect(scriptProcessor);
-    scriptProcessor.connect(this.audioContext.destination);
-    
-    // Buffer for collecting audio data
-    let buffer = new Float32Array(this.CHUNK_SIZE / 2);
-    let bufferIndex = 0;
-    
-    // Process audio data
-    scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-      if (!this.isRunning) return;
       
-      const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
-      
-      for (let i = 0; i < inputData.length; i++) {
-        // Apply soft clipping to prevent distortion
-        let sample = inputData[i];
-        if (sample > 0.95) sample = 0.95;
-        if (sample < -0.95) sample = -0.95;
-        
-        buffer[bufferIndex] = sample;
-        bufferIndex++;
-        
-        if (bufferIndex >= buffer.length) {
-          // Convert to 16-bit PCM
-          const pcmData = new Int16Array(buffer.length);
-          for (let j = 0; j < buffer.length; j++) {
-            const normalizedSample = Math.max(-1, Math.min(1, buffer[j]));
-            pcmData[j] = normalizedSample < 0 ? normalizedSample * 0x8000 : normalizedSample * 0x7FFF;
-          }
-          
-          // Send audio data to Gemini
-          this.sendAudioToGemini(pcmData.buffer);
-          
-          bufferIndex = 0;
-        }
+      // Provide more specific error messages
+      let errorMessage = 'Failed to initialize audio: ';
+      if (error instanceof Error) {
+        errorMessage += error.message;
+      } else {
+        errorMessage += 'Unknown error occurred';
       }
-    };
-    
-    // Store reference to script processor to prevent garbage collection
-    (this as any).scriptProcessor = scriptProcessor;
+      
+      // Clean up any partially created resources
+      this.cleanupAudio();
+      
+      this.onError?.(new Error(errorMessage));
+      this.setState('error');
+      throw error;
+    }
   }
 
   // Audio worklet processor code
@@ -736,48 +707,52 @@ export class GeminiLiveChatService {
 
   // Send audio data to Gemini
   private sendAudioToGemini(audioData: ArrayBuffer) {
-    if (this.session && this.isRunning) {
-      // Throttle audio sending to prevent overwhelming the API
-      const now = Date.now();
-      if (now - this.lastAudioSent < this.AUDIO_SEND_INTERVAL) {
-        return;
-      }
-      this.lastAudioSent = now;
+    if (!this.session || !this.isRunning || !this.isAudioAvailable()) {
+      return;
+    }
 
-      try {
-        // Convert to base64
-        const base64Audio = this.arrayBufferToBase64(audioData);
-        
-        // Use sendRealtimeInput for streaming audio data with correct structure
-        this.session.sendRealtimeInput({
-          audio: {
-            data: base64Audio,
-            mimeType: `audio/pcm;rate=${this.SEND_SAMPLE_RATE}`
-          }
-        });
-        
-        console.log('Audio data sent to Gemini via sendRealtimeInput');
-        
-      } catch (error) {
-        console.error('Error sending audio to Gemini:', error);
-        // If the connection is closed, stop trying to send audio
-        if (error instanceof Error && error.message && error.message.includes('CLOSING or CLOSED')) {
-          console.log('Connection closed, stopping audio transmission');
-          this.isRunning = false;
+    // Throttle audio sending to prevent overwhelming the API
+    const now = Date.now();
+    if (now - this.lastAudioSent < this.AUDIO_SEND_INTERVAL) {
+      return;
+    }
+    this.lastAudioSent = now;
+
+    try {
+      // Convert to base64
+      const base64Audio = this.arrayBufferToBase64(audioData);
+      
+      // Use sendRealtimeInput for streaming audio data with correct structure
+      this.session.sendRealtimeInput({
+        audio: {
+          data: base64Audio,
+          mimeType: `audio/pcm;rate=${this.SEND_SAMPLE_RATE}`
         }
+      });
+      
+      console.log('Audio data sent to Gemini via sendRealtimeInput');
+      
+    } catch (error) {
+      console.error('Error sending audio to Gemini:', error);
+      // If the connection is closed, stop trying to send audio
+      if (error instanceof Error && error.message && error.message.includes('CLOSING or CLOSED')) {
+        console.log('Connection closed, stopping audio transmission');
+        this.isRunning = false;
       }
     }
   }
 
   // Send audio stream end signal when microphone is paused
   private sendAudioStreamEnd() {
-    if (this.session && this.isRunning) {
-      try {
-        this.session.sendRealtimeInput({ audioStreamEnd: true });
-        console.log('Audio stream end signal sent to Gemini');
-      } catch (error) {
-        console.error('Error sending audio stream end:', error);
-      }
+    if (!this.session || !this.isRunning || !this.isAudioAvailable()) {
+      return;
+    }
+    
+    try {
+      this.session.sendRealtimeInput({ audioStreamEnd: true });
+      console.log('Audio stream end signal sent to Gemini');
+    } catch (error) {
+      console.error('Error sending audio stream end:', error);
     }
   }
 
@@ -796,31 +771,42 @@ export class GeminiLiveChatService {
     try {
       console.log('Starting conversation...');
       
-      // Initialize audio first
+      // Try to initialize audio first
+      let audioInitialized = false;
       try {
         await this.initializeAudio();
-      } catch (error) {
-        console.error('Audio initialization failed:', error);
-        this.onError?.(new Error('Audio initialization failed: ' + (error as Error).message));
-        // Don't return here, still try to connect to Gemini for text-only mode
+        audioInitialized = true;
+        console.log('Audio initialization successful');
+      } catch (audioError) {
+        console.error('Audio initialization failed:', audioError);
+        // Continue without audio - the error will be displayed to user
+        // but we can still establish the Gemini connection for text-only mode
       }
       
-      // Connect to Gemini
       await this.connectToGemini();
       
       this.isRunning = true;
-      this.setState('listening');
       
-      // Start audio processing if audio was successfully initialized
-      if (this.audioWorkletNode) {
-        console.log('Starting audio worklet...');
-        this.audioWorkletNode.port.postMessage({ type: 'start' });
+      // Only set to listening if audio was successfully initialized
+      if (audioInitialized) {
+        this.setState('listening');
         
-        // Wait a moment to ensure the worklet is ready
-        await new Promise(resolve => setTimeout(resolve, 200));
-        console.log('Audio worklet started');
+        // Start audio processing
+        if (this.audioWorkletNode) {
+          console.log('Starting audio worklet...');
+          this.audioWorkletNode.port.postMessage({ type: 'start' });
+          
+          // Wait a moment to ensure the worklet is ready
+          await new Promise(resolve => setTimeout(resolve, 200));
+          console.log('Audio worklet started');
+        } else {
+          console.error('Audio worklet node not available - audio features disabled');
+          this.setState('connected'); // Set to connected state instead of listening
+        }
       } else {
-        console.log('Audio worklet not available - running in text-only mode');
+        // Audio failed to initialize, but connection is established
+        this.setState('connected');
+        console.log('Conversation started in text-only mode (audio unavailable)');
       }
       
       console.log('Conversation started successfully');
@@ -887,12 +873,6 @@ export class GeminiLiveChatService {
       this.audioWorkletNode.disconnect();
       this.audioWorkletNode = null;
     }
-    
-    // Clean up script processor fallback if it exists
-    if ((this as any).scriptProcessor) {
-      (this as any).scriptProcessor.disconnect();
-      (this as any).scriptProcessor = null;
-    }
 
     if (this.microphone) {
       this.microphone.disconnect();
@@ -922,6 +902,48 @@ export class GeminiLiveChatService {
   // Get current state
   getState(): LiveChatState {
     return this.state;
+  }
+
+  // Check if audio features are available
+  isAudioAvailable(): boolean {
+    return !!(this.audioContext && this.audioWorkletNode && this.mediaStream);
+  }
+
+  // Check if microphone access is available in this environment
+  static async checkMicrophoneAvailability(): Promise<{ available: boolean; error?: string }> {
+    try {
+      // Check secure context
+      if (!window.isSecureContext) {
+        return {
+          available: false,
+          error: 'Microphone access requires a secure context (HTTPS)'
+        };
+      }
+
+      // Check if mediaDevices API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        return {
+          available: false,
+          error: 'Media devices API not available in this browser'
+        };
+      }
+
+      // Check if AudioContext is available
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) {
+        return {
+          available: false,
+          error: 'AudioContext not supported in this browser'
+        };
+      }
+
+      return { available: true };
+    } catch (error) {
+      return {
+        available: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
   }
 
   // Dispose resources

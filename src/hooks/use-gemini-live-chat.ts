@@ -16,6 +16,8 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
   const [transcript, setTranscript] = useState<string>('');
   const [response, setResponse] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [audioAvailable, setAudioAvailable] = useState<boolean>(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
   const [conversationHistory, setConversationHistory] = useState<Array<{
     type: 'user' | 'ai';
     text: string;
@@ -23,6 +25,19 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
   }>>([]);
   
   const serviceRef = useRef<GeminiLiveChatService | null>(null);
+
+  // Check microphone availability on mount
+  useEffect(() => {
+    const checkAudioAvailability = async () => {
+      const availability = await GeminiLiveChatService.checkMicrophoneAvailability();
+      setAudioAvailable(availability.available);
+      if (!availability.available) {
+        setAudioError(availability.error || 'Audio not available');
+      }
+    };
+    
+    checkAudioAvailability();
+  }, []);
 
   // Get API key from environment variables
   const getApiKey = (): string | null => {
@@ -49,7 +64,13 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
       });
       
       service.setCallbacks({
-        onStateChange: setState,
+        onStateChange: (newState) => {
+          setState(newState);
+          // Update audio availability when service state changes
+          if (newState === 'connected' || newState === 'listening') {
+            setAudioAvailable(service.isAudioAvailable());
+          }
+        },
         onAudioVisualization: setAudioData,
         onTranscript: (text) => {
           setTranscript(text);
@@ -65,7 +86,14 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
             { type: 'ai', text, timestamp: new Date() }
           ]);
         },
-        onError: (err) => setError(err.message)
+        onError: (err) => {
+          setError(err.message);
+          // Check if this is an audio-related error
+          if (err.message.includes('audio') || err.message.includes('microphone') || err.message.includes('media')) {
+            setAudioError(err.message);
+            setAudioAvailable(false);
+          }
+        }
       });
 
       serviceRef.current = service;
@@ -94,6 +122,10 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
     try {
       await serviceRef.current?.startConversation();
       setError(null);
+      // Update audio availability after starting conversation
+      if (serviceRef.current) {
+        setAudioAvailable(serviceRef.current.isAudioAvailable());
+      }
     } catch (err) {
       setError(`Failed to start conversation: ${(err as Error).message}`);
     }
@@ -104,6 +136,7 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
     try {
       serviceRef.current?.stopConversation();
       setError(null);
+      setAudioAvailable(false);
     } catch (err) {
       setError(`Failed to stop conversation: ${(err as Error).message}`);
     }
@@ -148,6 +181,8 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
     transcript,
     response,
     error,
+    audioAvailable,
+    audioError,
     conversationHistory,
     
     // Computed states
@@ -168,6 +203,7 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
     
     // Utilities
     clearError: () => setError(null),
+    clearAudioError: () => setAudioError(null),
     hasApiKey: () => !!getApiKey()
   };
 } 

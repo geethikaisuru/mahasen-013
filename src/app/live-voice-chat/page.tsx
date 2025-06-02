@@ -17,6 +17,8 @@ export default function LiveVoiceChatPage() {
     state,
     audioData,
     error,
+    audioAvailable,
+    audioError,
     conversationHistory,
     isIdle,
     isConnecting,
@@ -28,6 +30,7 @@ export default function LiveVoiceChatPage() {
     toggleConversation,
     clearHistory,
     clearError,
+    clearAudioError,
     hasApiKey
   } = useGeminiLiveChat({
     autoInit: true
@@ -58,7 +61,7 @@ export default function LiveVoiceChatPage() {
   const getStatusText = () => {
     switch (state) {
       case 'connecting': return '🔄 Connecting to Mahasen...';
-      case 'connected': return '✅ Connected - Ready to chat';
+      case 'connected': return audioAvailable ? '✅ Connected - Ready to chat' : '⚠️ Connected - Text only (no audio)';
       case 'listening': return '🎤 Mahasen is listening...';
       case 'speaking': return '🗣️ Mahasen is speaking...';
       case 'error': return '❌ Connection error';
@@ -132,6 +135,36 @@ export default function LiveVoiceChatPage() {
         </Alert>
       )}
 
+      {/* Audio Warning Display */}
+      {audioError && !audioAvailable && (
+        <Alert className="bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-800">
+          <AlertCircle className="h-4 w-4 text-yellow-600" />
+          <AlertDescription className="flex items-center justify-between">
+            <div>
+              <strong>Audio not available:</strong> {audioError}
+              <br />
+              <small className="text-xs opacity-80">
+                You can still chat with text, but voice features are disabled.
+              </small>
+            </div>
+            <Button variant="ghost" size="sm" onClick={clearAudioError}>
+              Dismiss
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* HTTPS Warning */}
+      {!window.isSecureContext && (
+        <Alert className="bg-orange-50 border-orange-200 dark:bg-orange-900/20 dark:border-orange-800">
+          <AlertCircle className="h-4 w-4 text-orange-600" />
+          <AlertDescription>
+            <strong>Insecure Context:</strong> Voice features require HTTPS. 
+            Please use HTTPS or localhost for full functionality.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex flex-1 gap-8">
         {/* Voice Interface */}
         <div className="flex-1 flex flex-col items-center justify-center gap-8">
@@ -170,8 +203,13 @@ export default function LiveVoiceChatPage() {
             <Button
               size="lg"
               variant="outline"
-              className="rounded-full w-16 h-16"
+              className={cn(
+                "rounded-full w-16 h-16",
+                !audioAvailable && "opacity-50 cursor-not-allowed"
+              )}
               onClick={toggleSpeaker}
+              disabled={!audioAvailable}
+              title={!audioAvailable ? "Audio not available" : isSpeakerOn ? "Mute speaker" : "Unmute speaker"}
             >
               {isSpeakerOn ? (
                 <Volume2 className="h-6 w-6" />
@@ -179,6 +217,11 @@ export default function LiveVoiceChatPage() {
                 <VolumeX className="h-6 w-6" />
               )}
             </Button>
+            {!audioAvailable && (
+              <span className="text-sm text-muted-foreground">
+                Audio unavailable
+              </span>
+            )}
           </div>
 
           {/* Status Text */}
