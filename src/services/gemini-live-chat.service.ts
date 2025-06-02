@@ -4,7 +4,6 @@ import {
   MediaResolution,
   Modality,
   Session,
-  TurnCoverage,
   StartSensitivity,
   EndSensitivity,
 } from '@google/genai';
@@ -37,18 +36,19 @@ export class GeminiLiveChatService {
   private gainNode: GainNode | null = null;
   private audioWorkletNode: AudioWorkletNode | null = null;
   private mediaStream: MediaStream | null = null;
-  private volumeData: Float32Array = new Float32Array(256);
   private isRunning = false;
   private audioPlayer: AudioContext | null = null;
-  private responseQueue: LiveServerMessage[] = [];
-  private audioParts: string[] = [];
   private accumulatedAudioData: Int16Array = new Int16Array(0);
   private isPlayingAudio = false;
   private currentAudioSource: AudioBufferSourceNode | null = null;
   
-  // Add these for speech activity detection
-  private speechAnalyser: AnalyserNode | null = null;
-  private speechVolumeData: Float32Array = new Float32Array(256);
+  // Message handling
+  private messageProcessor: ((message: LiveServerMessage) => void) | null = null;
+  private isProcessingMessages = false;
+  
+  // Audio visualization
+  private visualizationFrame: number | null = null;
+  private currentVolume: number = 0;
   private currentSpeechVolume: number = 0;
   
   // Callbacks
@@ -65,11 +65,11 @@ export class GeminiLiveChatService {
   private readonly CHUNK_SIZE = 1024;
 
   private lastAudioSent = 0;
-  private readonly AUDIO_SEND_INTERVAL = 50; // Reduced from 100ms to 50ms for faster response
+  private readonly AUDIO_SEND_INTERVAL = 100; // Send audio every 100ms as recommended
   
   constructor(config: LiveChatConfig) {
     this.apiKey = config.apiKey;
-    this.model = config.model || "gemini-2.5-flash-preview-native-audio-dialog";
+    this.model = config.model || "gemini-2.0-flash-live-001"; // Use the recommended cascaded model
     this.systemInstruction = config.systemInstruction || "You are Mahasen, a highly intelligent and helpful AI assistant. Always talk in English Language.";
     
     this.ai = new GoogleGenAI({
@@ -104,28 +104,14 @@ export class GeminiLiveChatService {
     try {
       console.log('Requesting microphone access...');
       
-      // Check if we're in a secure context
       if (!window.isSecureContext) {
-        throw new Error(
-          'Microphone access requires a secure context (HTTPS). Please:\n' +
-          '- Use HTTPS instead of HTTP\n' +
-          '- Use localhost for development\n' +
-          '- Ensure your site has a valid SSL certificate'
-        );
+        throw new Error('Microphone access requires a secure context (HTTPS)');
       }
       
-      // Check if mediaDevices API is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error(
-          'Media devices API not available. This could be due to:\n' +
-          '- Running in an insecure context (use HTTPS)\n' +
-          '- Browser compatibility issues\n' +
-          '- Permissions not granted\n' +
-          '- Browser does not support WebRTC'
-        );
+        throw new Error('Media devices API not available');
       }
       
-      // Get user media with explicit constraints
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: this.SEND_SAMPLE_RATE,
@@ -138,10 +124,9 @@ export class GeminiLiveChatService {
 
       console.log('Microphone access granted');
 
-      // Check if AudioContext is available
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContextClass) {
-        throw new Error('AudioContext not supported in this browser');
+        throw new Error('AudioContext not supported');
       }
 
       // Create audio context for input
@@ -149,7 +134,6 @@ export class GeminiLiveChatService {
         sampleRate: this.SEND_SAMPLE_RATE,
       });
 
-      // Resume audio context if suspended
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
       }
@@ -161,30 +145,32 @@ export class GeminiLiveChatService {
         sampleRate: this.RECEIVE_SAMPLE_RATE,
       });
 
+      // Resume audio player context if suspended (required for user interaction)
+      if (this.audioPlayer.state === 'suspended') {
+        await this.audioPlayer.resume();
+      }
+
+      console.log('Audio player context created, state:', this.audioPlayer.state);
+
       // Set up analyser for visualization
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 512;
       this.analyser.smoothingTimeConstant = 0.8;
 
-      // Create microphone source
       this.microphone = this.audioContext.createMediaStreamSource(this.mediaStream);
       
-      // Create gain node to boost microphone volume
       this.gainNode = this.audioContext.createGain();
-      this.gainNode.gain.value = 3.5; // Increase microphone volume by 2.5x
+      this.gainNode.gain.value = 2.0; // Moderate gain boost
       
-      // Connect microphone -> gain -> analyser
       this.microphone.connect(this.gainNode);
       this.gainNode.connect(this.analyser);
 
       console.log('Microphone connected with gain boost:', this.gainNode.gain.value);
 
-      // Check if AudioWorklet is supported
       if (!this.audioContext.audioWorklet) {
-        throw new Error('AudioWorklet not supported in this browser');
+        throw new Error('AudioWorklet not supported');
       }
 
-      // Load and create audio worklet for processing
       await this.audioContext.audioWorklet.addModule(
         URL.createObjectURL(new Blob([this.getAudioWorkletCode()], { type: 'application/javascript' }))
       );
@@ -192,9 +178,8 @@ export class GeminiLiveChatService {
       this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
       this.gainNode.connect(this.audioWorkletNode);
 
-      console.log('Audio worklet node created and connected with gain boost');
+      console.log('Audio worklet node created and connected');
 
-      // Handle audio data from worklet
       this.audioWorkletNode.port.onmessage = (event) => {
         if (event.data.type === 'audio-data' && this.isRunning) {
           this.sendAudioToGemini(event.data.audioData);
@@ -206,19 +191,8 @@ export class GeminiLiveChatService {
       
     } catch (error) {
       console.error('Audio initialization error:', error);
-      
-      // Provide more specific error messages
-      let errorMessage = 'Failed to initialize audio: ';
-      if (error instanceof Error) {
-        errorMessage += error.message;
-      } else {
-        errorMessage += 'Unknown error occurred';
-      }
-      
-      // Clean up any partially created resources
       this.cleanupAudio();
-      
-      this.onError?.(new Error(errorMessage));
+      this.onError?.(new Error('Failed to initialize audio: ' + (error as Error).message));
       this.setState('error');
       throw error;
     }
@@ -230,7 +204,7 @@ export class GeminiLiveChatService {
       class AudioProcessor extends AudioWorkletProcessor {
         constructor() {
           super();
-          this.bufferSize = ${this.CHUNK_SIZE / 2}; // Reduced buffer size for lower latency
+          this.bufferSize = ${this.CHUNK_SIZE};
           this.buffer = new Float32Array(this.bufferSize);
           this.bufferIndex = 0;
           this.isRunning = false;
@@ -254,10 +228,9 @@ export class GeminiLiveChatService {
 
           if (inputChannel) {
             for (let i = 0; i < inputChannel.length; i++) {
-              // Apply some normalization to handle the increased gain
               let sample = inputChannel[i];
               
-              // Soft clipping to prevent harsh distortion from gain boost
+              // Soft clipping
               if (sample > 0.95) sample = 0.95;
               if (sample < -0.95) sample = -0.95;
               
@@ -265,7 +238,6 @@ export class GeminiLiveChatService {
               this.bufferIndex++;
 
               if (this.bufferIndex >= this.bufferSize) {
-                // Convert to 16-bit PCM with improved quality handling
                 const pcmData = new Int16Array(this.bufferSize);
                 for (let j = 0; j < this.bufferSize; j++) {
                   const normalizedSample = Math.max(-1, Math.min(1, this.buffer[j]));
@@ -290,121 +262,108 @@ export class GeminiLiveChatService {
     `;
   }
 
-  // Start audio visualization
+  // Start audio visualization with proper throttling
   private startAudioVisualization() {
+    let lastVisualizationUpdate = 0;
+    let lastVolume = 0;
+    
     const updateVisualization = () => {
-      if (this.analyser && this.volumeData) {
-        // Use time domain data for better volume detection
+      const now = Date.now();
+      
+      // Throttle to ~20fps to prevent React overload
+      if (now - lastVisualizationUpdate < 50) {
+        if (this.audioContext && this.audioContext.state !== 'closed') {
+          this.visualizationFrame = requestAnimationFrame(updateVisualization);
+        }
+        return;
+      }
+      
+      lastVisualizationUpdate = now;
+      
+      if (this.analyser) {
         const timeData = new Uint8Array(this.analyser.frequencyBinCount);
         this.analyser.getByteTimeDomainData(timeData);
         
-        // Calculate volume (RMS) from time domain data
         let sum = 0;
         for (let i = 0; i < timeData.length; i++) {
           const normalized = (timeData[i] - 128) / 128;
           sum += normalized * normalized;
         }
         const rms = Math.sqrt(sum / timeData.length);
-        const volume = Math.min(rms * 3, 1); // Adjusted for boosted input
+        const volume = Math.min(rms * 2, 1);
 
-        // Detect speech activity during AI playback
-        let speakingVolume = 0;
-        if (this.state === 'speaking' && this.speechAnalyser) {
-          const speechTimeData = new Uint8Array(this.speechAnalyser.frequencyBinCount);
-          this.speechAnalyser.getByteTimeDomainData(speechTimeData);
-          
-          // Calculate speech volume (RMS) from AI audio output
-          let speechSum = 0;
-          for (let i = 0; i < speechTimeData.length; i++) {
-            const normalized = (speechTimeData[i] - 128) / 128;
-            speechSum += normalized * normalized;
-          }
-          const speechRms = Math.sqrt(speechSum / speechTimeData.length);
-          speakingVolume = Math.min(speechRms * 5, 1); // Amplify speech detection
-          
-          // Smooth the speech volume to avoid jitter
-          this.currentSpeechVolume = this.currentSpeechVolume * 0.7 + speakingVolume * 0.3;
-          speakingVolume = this.currentSpeechVolume;
-        } else {
-          // Gradually fade out speech volume when not speaking
-          this.currentSpeechVolume = this.currentSpeechVolume * 0.9;
-          speakingVolume = this.currentSpeechVolume;
+        // Smooth the volume to prevent jitter
+        this.currentVolume = this.currentVolume * 0.7 + volume * 0.3;
+
+        // Only call the callback if there's a significant change
+        const significantChange = Math.abs(this.currentVolume - lastVolume) > 0.02;
+        
+        if (this.onAudioVisualization && significantChange) {
+          lastVolume = this.currentVolume;
+          this.onAudioVisualization({
+            volume: this.currentVolume,
+            isListening: this.state === 'listening',
+            isSpeaking: this.state === 'speaking',
+            speakingVolume: this.currentSpeechVolume
+          });
         }
-
-        this.onAudioVisualization?.({
-          volume: volume,
-          isListening: this.state === 'listening',
-          isSpeaking: this.state === 'speaking',
-          speakingVolume: speakingVolume
-        });
       }
 
       if (this.audioContext && this.audioContext.state !== 'closed') {
-        requestAnimationFrame(updateVisualization);
+        this.visualizationFrame = requestAnimationFrame(updateVisualization);
       }
     };
 
     updateVisualization();
   }
 
-  // Connect to Gemini Live API using the official SDK
+  // Connect to Gemini Live API with proper configuration
   private async connectToGemini(): Promise<void> {
     try {
       this.setState('connecting');
 
       const config = {
-        responseModalities: [Modality.AUDIO],
+        responseModalities: [Modality.AUDIO], // Audio response for natural conversation
         mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
         systemInstruction: {
           parts: [{
             text: this.systemInstruction,
           }]
         },
-        // Add proper VAD configuration
+        // Enable input transcription to see what user is saying
+        inputAudioTranscription: {},
+        // Configure VAD properly for responsive interaction
         realtimeInputConfig: {
           automaticActivityDetection: {
-            disabled: false, // Use automatic VAD
-            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_LOW,
-            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
-            prefixPaddingMs: 300,
-            silenceDurationMs: 1000, // 1 second of silence before considering speech ended
+            disabled: false,
+            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            prefixPaddingMs: 200,
+            silenceDurationMs: 800, // Respond after 800ms of silence
           }
         }
       };
 
-      console.debug('Attempting to connect to Gemini Live API...');
+      console.log('Connecting to Gemini Live API with config:', config);
 
       this.session = await this.ai.live.connect({
         model: this.model,
         callbacks: {
           onopen: () => {
-            console.debug('Gemini Live API connection opened');
-            // Use a timeout to ensure session is fully initialized
-            setTimeout(() => {
-              if (this.session) {
-                console.debug('Session methods:', Object.getOwnPropertyNames(this.session));
-                console.debug('Session prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(this.session)));
-                
-                // Check for send method or similar
-                const sessionMethods = Object.getOwnPropertyNames(this.session);
-                const prototypeMethods = Object.getOwnPropertyNames(Object.getPrototypeOf(this.session));
-                console.debug('Available methods:', [...sessionMethods, ...prototypeMethods]);
-              }
-              this.setState('connected');
-            }, 100);
+            console.log('✅ Gemini Live API connection opened');
+            this.setState('connected');
+            this.startMessageProcessing();
           },
           onmessage: (message: LiveServerMessage) => {
-            console.log('📨 Received message from Gemini at:', Date.now());
-            this.responseQueue.push(message);
-            this.handleModelMessage(message);
+            this.handleIncomingMessage(message);
           },
           onerror: (e: ErrorEvent) => {
-            console.error('Gemini Live API error:', e.message);
+            console.error('❌ Gemini Live API error:', e.message);
             this.onError?.(new Error('Live API error: ' + e.message));
             this.setState('error');
           },
           onclose: (e: CloseEvent) => {
-            console.debug('Gemini Live API connection closed:', e.reason);
+            console.log('🔌 Gemini Live API connection closed:', e.reason);
             if (this.state !== 'idle') {
               this.setState('error');
               this.onError?.(new Error('Connection closed unexpectedly: ' + e.reason));
@@ -414,122 +373,157 @@ export class GeminiLiveChatService {
         config
       });
 
-      console.debug('Session created:', !!this.session);
-      
-      // Wait a moment for connection to stabilize
-      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('📡 Session created successfully');
       
     } catch (error) {
-      console.error('Failed to connect to Gemini:', error);
+      console.error('❌ Failed to connect to Gemini:', error);
       this.onError?.(new Error('Failed to connect to Gemini: ' + (error as Error).message));
       this.setState('error');
       throw error;
     }
   }
 
-  // Handle messages from Gemini
-  private handleModelMessage(message: LiveServerMessage) {
+  // Handle incoming messages from Gemini
+  private handleIncomingMessage(message: LiveServerMessage) {
+    console.log('📨 Received message from Gemini:', message);
+    
     try {
-      console.log('📨 Processing message from Gemini at:', Date.now());
-      
       // Handle server content (text and audio responses)
       if (message.serverContent?.modelTurn?.parts) {
         const parts = message.serverContent.modelTurn.parts;
         
-        // Set state to speaking when we start receiving AI response
+        // Transition to speaking when we start receiving AI response
         if (this.state === 'listening') {
-          console.log('🎤➡️🗣️ Transitioning from listening to speaking');
+          console.log('🎤➡️🗣️ AI started responding');
           this.setState('speaking');
         }
         
         for (const part of parts) {
-          // Handle text responses
           if (part.text) {
             console.log('📝 Gemini text response:', part.text);
             this.onResponse?.(part.text);
           }
 
-          // Handle audio responses  
           if (part.inlineData && part.inlineData.data) {
-            console.log('🎵 Gemini audio response received at:', Date.now());
+            console.log('🎵 Gemini audio response received - accumulating');
             this.handleAudioResponse(part.inlineData);
           }
         }
       }
 
-      // Handle generation completion
+      // Handle generation complete - this means all content has been generated
       if (message.serverContent?.generationComplete) {
-        console.log('✅ Generation complete - playing accumulated audio at:', Date.now());
-        // Play all accumulated audio when generation is finished
-        this.playAccumulatedAudio();
+        console.log('✅ Generation complete - checking if we have audio to play');
+        if (this.accumulatedAudioData.length > 0) {
+          console.log(`🔊 Playing accumulated audio: ${this.accumulatedAudioData.length} samples`);
+          this.playAccumulatedAudio();
+        } else {
+          console.log('🔇 No audio accumulated, transitioning back to listening');
+          this.setState('listening');
+        }
       }
 
       // Handle turn completion - this indicates the AI finished its response
       if (message.serverContent?.turnComplete) {
-        console.log('🏁 Turn complete, AI finished speaking at:', Date.now());
-        // Ensure audio is played if not already started
-        if (this.accumulatedAudioData.length > 0 && !this.isPlayingAudio) {
+        console.log('🏁 Turn complete, AI finished speaking');
+        // Only play if we haven't started playing already and have audio
+        if (!this.isPlayingAudio && this.accumulatedAudioData.length > 0) {
+          console.log('🔊 Turn complete - playing remaining audio');
           this.playAccumulatedAudio();
         } else if (this.accumulatedAudioData.length === 0) {
-          // No audio to play, transition back to listening immediately
-          console.log('🗣️➡️🎤 No audio to play, transitioning back to listening');
+          console.log('🔇 Turn complete - no audio to play, back to listening');
           this.setState('listening');
         }
       }
 
       // Handle interruptions
       if (message.serverContent?.interrupted) {
-        console.log('⚠️ Response was interrupted at:', Date.now());
-        // Stop current audio playback immediately and clear accumulated data
-        if (this.currentAudioSource) {
-          this.currentAudioSource.stop();
-          this.currentAudioSource = null;
-        }
-        this.isPlayingAudio = false;
-        this.accumulatedAudioData = new Int16Array(0);
+        console.log('⚠️ Response was interrupted');
+        this.stopCurrentAudio();
         this.setState('listening');
       }
 
-      // Handle transcriptions (user speech recognition)
+      // Handle input transcriptions
       if (message.serverContent?.inputTranscription?.text) {
-        console.log('🎤 User speech transcription at:', Date.now(), ':', message.serverContent.inputTranscription.text);
+        console.log('🎤 User speech:', message.serverContent.inputTranscription.text);
         this.onTranscript?.(message.serverContent.inputTranscription.text);
       }
 
     } catch (error) {
-      console.error('Error handling model message:', error);
+      console.error('❌ Error handling message:', error);
     }
+  }
+
+  // Start message processing loop
+  private startMessageProcessing() {
+    if (this.isProcessingMessages) return;
+    
+    this.isProcessingMessages = true;
+    console.log('🔄 Started message processing');
   }
 
   // Handle audio response from Gemini
   private handleAudioResponse(inlineData: any) {
     try {
       if (inlineData.data) {
-        console.log('Accumulating audio chunk');
-        
-        // Accumulate audio data - don't play immediately
         this.accumulateAudioChunk(inlineData.data, inlineData.mimeType || 'audio/pcm;rate=24000');
       }
     } catch (error) {
-      console.error('Error handling audio response:', error);
-      this.setState('listening');
+      console.error('❌ Error handling audio response:', error);
     }
   }
 
   // Accumulate audio chunk data
   private accumulateAudioChunk(rawData: string, mimeType: string): void {
     try {
-      // Convert base64 to PCM data
+      if (!rawData || rawData.length === 0) {
+        console.log('⚠️ Empty audio data received, skipping');
+        return;
+      }
+      
       const binaryString = atob(rawData);
+      if (binaryString.length === 0) {
+        console.log('⚠️ Empty binary string after base64 decode, skipping');
+        return;
+      }
+      
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
 
-      // Convert to Int16Array (PCM 16-bit)
+      // Ensure we have valid PCM data (should be even number of bytes for 16-bit)
+      if (bytes.length % 2 !== 0) {
+        console.log('⚠️ Invalid PCM data length (not even), padding with zero');
+        const paddedBytes = new Uint8Array(bytes.length + 1);
+        paddedBytes.set(bytes);
+        paddedBytes[bytes.length] = 0;
+        // Use the padded bytes for further processing
+        const newPcmData = new Int16Array(paddedBytes.buffer);
+        
+        if (newPcmData.length === 0) {
+          console.log('⚠️ No PCM samples generated, skipping');
+          return;
+        }
+        
+        const combinedLength = this.accumulatedAudioData.length + newPcmData.length;
+        const combined = new Int16Array(combinedLength);
+        combined.set(this.accumulatedAudioData, 0);
+        combined.set(newPcmData, this.accumulatedAudioData.length);
+        
+        this.accumulatedAudioData = combined;
+        
+        console.log(`🎵 Accumulated audio (padded): ${newPcmData.length} samples, total: ${this.accumulatedAudioData.length}`);
+        return;
+      }
+
       const newPcmData = new Int16Array(bytes.buffer);
       
-      // Accumulate with existing data
+      if (newPcmData.length === 0) {
+        console.log('⚠️ No PCM samples generated, skipping');
+        return;
+      }
+      
       const combinedLength = this.accumulatedAudioData.length + newPcmData.length;
       const combined = new Int16Array(combinedLength);
       combined.set(this.accumulatedAudioData, 0);
@@ -537,181 +531,134 @@ export class GeminiLiveChatService {
       
       this.accumulatedAudioData = combined;
       
-      console.log(`Accumulated audio chunk: ${newPcmData.length} samples, total: ${this.accumulatedAudioData.length} samples`);
+      console.log(`🎵 Accumulated audio: ${newPcmData.length} samples, total: ${this.accumulatedAudioData.length}`);
       
     } catch (error) {
-      console.error('Error accumulating audio chunk:', error);
+      console.error('❌ Error accumulating audio:', error);
+      console.log('🔍 Audio chunk info:', {
+        rawDataLength: rawData?.length || 0,
+        mimeType,
+        currentAccumulatedLength: this.accumulatedAudioData.length
+      });
     }
   }
 
-  // Play the complete accumulated audio when generation is finished
+  // Play accumulated audio
   private async playAccumulatedAudio(): Promise<void> {
-    if (!this.audioPlayer || this.accumulatedAudioData.length === 0) return;
+    if (!this.audioPlayer || this.accumulatedAudioData.length === 0) {
+      // No audio to play, transition back to listening
+      console.log('🔇 No audio data to play, transitioning back to listening');
+      this.setState('listening');
+      return;
+    }
     
     try {
-      console.log(`Playing accumulated audio: ${this.accumulatedAudioData.length} samples`);
+      console.log(`🔊 Playing accumulated audio: ${this.accumulatedAudioData.length} samples`);
       
-      // Stop any currently playing audio
+      // Ensure audio player context is running
+      if (this.audioPlayer.state === 'suspended') {
+        console.log('🎵 Resuming suspended audio player context');
+        await this.audioPlayer.resume();
+      }
+      
+      // Store reference to audio data before clearing current playback
+      const audioDataToPlay = this.accumulatedAudioData;
+      
+      // Stop any currently playing audio (but don't clear the data we want to play)
       if (this.currentAudioSource) {
         this.currentAudioSource.stop();
         this.currentAudioSource = null;
       }
+      this.isPlayingAudio = false;
       
-      // Create speech analyser if it doesn't exist
-      if (!this.speechAnalyser) {
-        this.speechAnalyser = this.audioPlayer.createAnalyser();
-        this.speechAnalyser.fftSize = 512;
-        this.speechAnalyser.smoothingTimeConstant = 0.3;
+      // Validate audio data before creating buffer
+      if (audioDataToPlay.length === 0) {
+        console.log('⚠️ Audio data is empty after validation, skipping playback');
+        this.setState('listening');
+        return;
       }
       
-      // Create audio buffer from accumulated data
       const sampleRate = this.RECEIVE_SAMPLE_RATE;
       const numChannels = 1;
-      const audioBuffer = this.audioPlayer.createBuffer(numChannels, this.accumulatedAudioData.length, sampleRate);
       
-      // Convert Int16 to Float32 and copy to audio buffer
-      const channelData = audioBuffer.getChannelData(0);
-      for (let i = 0; i < this.accumulatedAudioData.length; i++) {
-        channelData[i] = this.accumulatedAudioData[i] / 32768; // Convert to -1.0 to 1.0 range
+      // Ensure we have valid audio data length
+      const audioDataLength = audioDataToPlay.length;
+      if (audioDataLength <= 0) {
+        console.log('⚠️ Invalid audio data length:', audioDataLength);
+        this.setState('listening');
+        return;
       }
       
-      // Create and play audio source
+      console.log(`🎵 Creating audio buffer: ${audioDataLength} samples at ${sampleRate}Hz`);
+      console.log(`🎵 Audio player state: ${this.audioPlayer.state}`);
+      
+      const audioBuffer = this.audioPlayer.createBuffer(numChannels, audioDataLength, sampleRate);
+      
+      const channelData = audioBuffer.getChannelData(0);
+      for (let i = 0; i < audioDataLength; i++) {
+        channelData[i] = audioDataToPlay[i] / 32768;
+      }
+      
       const source = this.audioPlayer.createBufferSource();
       source.buffer = audioBuffer;
       
-      // Connect source -> analyser -> destination for speech activity detection
-      source.connect(this.speechAnalyser);
-      this.speechAnalyser.connect(this.audioPlayer.destination);
+      // Create a gain node for volume control
+      const gainNode = this.audioPlayer.createGain();
+      gainNode.gain.value = 1.0; // Full volume
+      source.connect(gainNode);
+      gainNode.connect(this.audioPlayer.destination);
       
       this.currentAudioSource = source;
-      
       this.isPlayingAudio = true;
       this.setState('speaking');
       
-      // Set up completion handler
+      // Clear the accumulated data only after successfully setting up playback
+      this.accumulatedAudioData = new Int16Array(0);
+      
       source.onended = () => {
-        console.log('🔊 Audio playback completed, transitioning back to listening');
+        console.log('🔊 Audio playback completed');
         this.isPlayingAudio = false;
         this.currentAudioSource = null;
-        this.accumulatedAudioData = new Int16Array(0); // Clear accumulated data
         this.setState('listening');
       };
       
       source.start();
-      console.log('🔊 Audio playback started');
+      console.log('🔊 Audio playback started successfully');
       
     } catch (error) {
-      console.error('Error playing accumulated audio:', error);
+      console.error('❌ Error playing audio:', error);
+      console.log('🔍 Audio data info:', {
+        length: this.accumulatedAudioData.length,
+        sampleRate: this.RECEIVE_SAMPLE_RATE,
+        audioPlayerState: this.audioPlayer?.state,
+        audioPlayerSampleRate: this.audioPlayer?.sampleRate
+      });
+      
+      // Clear the problematic audio data and transition back to listening
+      this.accumulatedAudioData = new Int16Array(0);
       this.isPlayingAudio = false;
       this.setState('listening');
     }
   }
 
-  // Convert single audio chunk to WAV format
-  private convertSingleAudioChunk(rawData: string, mimeType: string): ArrayBuffer {
-    const options = this.parseMimeType(mimeType);
-    const binaryString = atob(rawData);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+  // Stop current audio playback
+  private stopCurrentAudio(clearAccumulated: boolean = true) {
+    if (this.currentAudioSource) {
+      this.currentAudioSource.stop();
+      this.currentAudioSource = null;
     }
-    
-    const wavHeader = this.createWavHeader(bytes.length, options);
-    const combined = new Uint8Array(new Uint8Array(wavHeader).byteLength + bytes.length);
-    combined.set(new Uint8Array(wavHeader), 0);
-    combined.set(bytes, new Uint8Array(wavHeader).byteLength);
-    
-    return combined.buffer;
-  }
-
-  // Convert audio data to WAV format (adapted from the documentation)
-  private convertToWav(rawData: string[], mimeType: string): ArrayBuffer {
-    const options = this.parseMimeType(mimeType);
-    const dataLength = rawData.reduce((a, b) => a + b.length, 0);
-    const wavHeader = this.createWavHeader(dataLength, options);
-    const audioData = rawData.map(data => {
-      const binaryString = atob(data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      return bytes;
-    });
-
-    const combinedLength = audioData.reduce((sum, arr) => sum + arr.length, 0);
-    const combined = new Uint8Array(new Uint8Array(wavHeader).byteLength + combinedLength);
-    combined.set(new Uint8Array(wavHeader), 0);
-    
-    let offset = new Uint8Array(wavHeader).byteLength;
-    for (const arr of audioData) {
-      combined.set(arr, offset);
-      offset += arr.length;
+    this.isPlayingAudio = false;
+    if (clearAccumulated) {
+      this.accumulatedAudioData = new Int16Array(0);
     }
-
-    return combined.buffer;
-  }
-
-  // Parse MIME type for audio format
-  private parseMimeType(mimeType: string) {
-    const [fileType, ...params] = mimeType.split(';').map(s => s.trim());
-    const [_, format] = fileType.split('/');
-
-    const options = {
-      numChannels: 1,
-      bitsPerSample: 16,
-      sampleRate: this.RECEIVE_SAMPLE_RATE,
-    };
-
-    if (format && format.startsWith('L')) {
-      const bits = parseInt(format.slice(1), 10);
-      if (!isNaN(bits)) {
-        options.bitsPerSample = bits;
-      }
-    }
-
-    for (const param of params) {
-      const [key, value] = param.split('=').map(s => s.trim());
-      if (key === 'rate') {
-        options.sampleRate = parseInt(value, 10);
-      }
-    }
-
-    return options;
-  }
-
-  // Create WAV header
-  private createWavHeader(dataLength: number, options: any): ArrayBuffer {
-    const { numChannels, sampleRate, bitsPerSample } = options;
-    const byteRate = sampleRate * numChannels * bitsPerSample / 8;
-    const blockAlign = numChannels * bitsPerSample / 8;
-    const buffer = new ArrayBuffer(44);
-    const view = new DataView(buffer);
-
-    // WAV header
-    view.setUint32(0, 0x46464952, true);          // "RIFF"
-    view.setUint32(4, 36 + dataLength, true);     // ChunkSize
-    view.setUint32(8, 0x45564157, true);          // "WAVE"
-    view.setUint32(12, 0x20746D66, true);         // "fmt "
-    view.setUint32(16, 16, true);                 // Subchunk1Size
-    view.setUint16(20, 1, true);                  // AudioFormat (PCM)
-    view.setUint16(22, numChannels, true);        // NumChannels
-    view.setUint32(24, sampleRate, true);         // SampleRate
-    view.setUint32(28, byteRate, true);           // ByteRate
-    view.setUint16(32, blockAlign, true);         // BlockAlign
-    view.setUint16(34, bitsPerSample, true);      // BitsPerSample
-    view.setUint32(36, 0x61746164, true);         // "data"
-    view.setUint32(40, dataLength, true);         // Subchunk2Size
-
-    return buffer;
   }
 
   // Send audio data to Gemini
   private sendAudioToGemini(audioData: ArrayBuffer) {
-    if (!this.session || !this.isRunning || !this.isAudioAvailable()) {
+    if (!this.session || !this.isRunning) {
       return;
     }
 
-    // Throttle audio sending to prevent overwhelming the API
     const now = Date.now();
     if (now - this.lastAudioSent < this.AUDIO_SEND_INTERVAL) {
       return;
@@ -719,10 +666,8 @@ export class GeminiLiveChatService {
     this.lastAudioSent = now;
 
     try {
-      // Convert to base64
       const base64Audio = this.arrayBufferToBase64(audioData);
       
-      // Use sendRealtimeInput for streaming audio data with correct structure
       this.session.sendRealtimeInput({
         audio: {
           data: base64Audio,
@@ -730,29 +675,13 @@ export class GeminiLiveChatService {
         }
       });
       
-      console.log('Audio data sent to Gemini via sendRealtimeInput');
+      // Don't log every audio send to reduce console spam
       
     } catch (error) {
-      console.error('Error sending audio to Gemini:', error);
-      // If the connection is closed, stop trying to send audio
-      if (error instanceof Error && error.message && error.message.includes('CLOSING or CLOSED')) {
-        console.log('Connection closed, stopping audio transmission');
+      console.error('❌ Error sending audio:', error);
+      if (error instanceof Error && error.message.includes('CLOSING or CLOSED')) {
         this.isRunning = false;
       }
-    }
-  }
-
-  // Send audio stream end signal when microphone is paused
-  private sendAudioStreamEnd() {
-    if (!this.session || !this.isRunning || !this.isAudioAvailable()) {
-      return;
-    }
-    
-    try {
-      this.session.sendRealtimeInput({ audioStreamEnd: true });
-      console.log('Audio stream end signal sent to Gemini');
-    } catch (error) {
-      console.error('Error sending audio stream end:', error);
     }
   }
 
@@ -766,53 +695,72 @@ export class GeminiLiveChatService {
     return btoa(binary);
   }
 
+  // Ensure audio contexts are ready for playback
+  private async ensureAudioContextsReady(): Promise<void> {
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      try {
+        await this.audioContext.resume();
+        console.log('✅ Input audio context resumed');
+      } catch (error) {
+        console.warn('⚠️ Failed to resume input audio context:', error);
+      }
+    }
+
+    if (this.audioPlayer && this.audioPlayer.state === 'suspended') {
+      try {
+        await this.audioPlayer.resume();
+        console.log('✅ Output audio context resumed');
+      } catch (error) {
+        console.warn('⚠️ Failed to resume output audio context:', error);
+      }
+    }
+  }
+
   // Start conversation
   async startConversation(): Promise<void> {
     try {
-      console.log('Starting conversation...');
+      console.log('🚀 Starting conversation...');
       
-      // Try to initialize audio first
       let audioInitialized = false;
       try {
         await this.initializeAudio();
         audioInitialized = true;
-        console.log('Audio initialization successful');
+        console.log('✅ Audio initialization successful');
       } catch (audioError) {
-        console.error('Audio initialization failed:', audioError);
-        // Continue without audio - the error will be displayed to user
-        // but we can still establish the Gemini connection for text-only mode
+        console.error('❌ Audio initialization failed:', audioError);
       }
       
       await this.connectToGemini();
       
+      // Ensure audio contexts are ready after user interaction
+      if (audioInitialized) {
+        await this.ensureAudioContextsReady();
+      }
+      
       this.isRunning = true;
       
-      // Only set to listening if audio was successfully initialized
       if (audioInitialized) {
         this.setState('listening');
         
-        // Start audio processing
         if (this.audioWorkletNode) {
-          console.log('Starting audio worklet...');
+          console.log('🎤 Starting audio worklet...');
           this.audioWorkletNode.port.postMessage({ type: 'start' });
           
-          // Wait a moment to ensure the worklet is ready
           await new Promise(resolve => setTimeout(resolve, 200));
-          console.log('Audio worklet started');
+          console.log('✅ Audio worklet started');
         } else {
-          console.error('Audio worklet node not available - audio features disabled');
-          this.setState('connected'); // Set to connected state instead of listening
+          console.error('❌ Audio worklet node not available');
+          this.setState('connected');
         }
       } else {
-        // Audio failed to initialize, but connection is established
         this.setState('connected');
-        console.log('Conversation started in text-only mode (audio unavailable)');
+        console.log('⚠️ Conversation started in text-only mode');
       }
       
-      console.log('Conversation started successfully');
+      console.log('✅ Conversation started successfully');
       
     } catch (error) {
-      console.error('Failed to start conversation:', error);
+      console.error('❌ Failed to start conversation:', error);
       this.onError?.(new Error('Failed to start conversation: ' + (error as Error).message));
       this.setState('error');
     }
@@ -821,48 +769,37 @@ export class GeminiLiveChatService {
   // Stop conversation
   stopConversation(): void {
     try {
-      console.log('Stopping conversation...');
+      console.log('🛑 Stopping conversation...');
       this.isRunning = false;
+      this.isProcessingMessages = false;
 
-      // Send audio stream end signal before stopping
-      this.sendAudioStreamEnd();
-
-      // Stop audio processing
       if (this.audioWorkletNode) {
-        console.log('Stopping audio worklet...');
         this.audioWorkletNode.port.postMessage({ type: 'stop' });
       }
 
-      // Close session
       if (this.session) {
-        console.log('Closing session...');
         this.session.close();
         this.session = null;
       }
 
-      // Clean up audio resources
       this.cleanupAudio();
-      
       this.setState('idle');
-      console.log('Conversation stopped successfully');
+      console.log('✅ Conversation stopped successfully');
       
     } catch (error) {
-      console.error('Failed to stop conversation:', error);
+      console.error('❌ Failed to stop conversation:', error);
       this.onError?.(new Error('Failed to stop conversation: ' + (error as Error).message));
     }
   }
 
   // Clean up audio resources
   private cleanupAudio(): void {
-    // Stop current audio playback
-    if (this.currentAudioSource) {
-      this.currentAudioSource.stop();
-      this.currentAudioSource = null;
-    }
+    this.stopCurrentAudio();
 
-    // Reset audio state and clear accumulated data
-    this.isPlayingAudio = false;
-    this.accumulatedAudioData = new Int16Array(0);
+    if (this.visualizationFrame) {
+      cancelAnimationFrame(this.visualizationFrame);
+      this.visualizationFrame = null;
+    }
 
     if (this.gainNode) {
       this.gainNode.disconnect();
@@ -893,10 +830,6 @@ export class GeminiLiveChatService {
       this.mediaStream.getTracks().forEach(track => track.stop());
       this.mediaStream = null;
     }
-
-    // Clear audio parts
-    this.audioParts = [];
-    this.responseQueue = [];
   }
 
   // Get current state
@@ -909,10 +842,9 @@ export class GeminiLiveChatService {
     return !!(this.audioContext && this.audioWorkletNode && this.mediaStream);
   }
 
-  // Check if microphone access is available in this environment
+  // Check microphone availability
   static async checkMicrophoneAvailability(): Promise<{ available: boolean; error?: string }> {
     try {
-      // Check secure context
       if (!window.isSecureContext) {
         return {
           available: false,
@@ -920,20 +852,18 @@ export class GeminiLiveChatService {
         };
       }
 
-      // Check if mediaDevices API is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         return {
           available: false,
-          error: 'Media devices API not available in this browser'
+          error: 'Media devices API not available'
         };
       }
 
-      // Check if AudioContext is available
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioContextClass) {
         return {
           available: false,
-          error: 'AudioContext not supported in this browser'
+          error: 'AudioContext not supported'
         };
       }
 

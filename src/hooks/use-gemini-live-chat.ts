@@ -25,6 +25,7 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
   }>>([]);
   
   const serviceRef = useRef<GeminiLiveChatService | null>(null);
+  const lastAudioUpdateRef = useRef<number>(0);
 
   // Check microphone availability on mount
   useEffect(() => {
@@ -48,6 +49,15 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
     return null;
   };
 
+  // Throttled audio visualization update - limit to 30fps to prevent React overload
+  const handleAudioVisualization = useCallback((data: AudioVisualizationData) => {
+    const now = Date.now();
+    if (now - lastAudioUpdateRef.current > 33) { // ~30fps throttling
+      lastAudioUpdateRef.current = now;
+      setAudioData(data);
+    }
+  }, []);
+
   // Initialize the service
   const initialize = useCallback(() => {
     const apiKey = getApiKey();
@@ -60,7 +70,7 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
     try {
       const service = new GeminiLiveChatService({ 
         apiKey,
-        systemInstruction: "Your Name is Mahasen, You are a helpful AI Assistant. Respond naturally and conversationally."
+        systemInstruction: "Your Name is Mahasen, You are a helpful AI Assistant. Respond naturally and conversationally. Always respond in English."
       });
       
       service.setCallbacks({
@@ -71,7 +81,7 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
             setAudioAvailable(service.isAudioAvailable());
           }
         },
-        onAudioVisualization: setAudioData,
+        onAudioVisualization: handleAudioVisualization,
         onTranscript: (text) => {
           setTranscript(text);
           setConversationHistory(prev => [
@@ -103,7 +113,7 @@ export function useGeminiLiveChat(options: UseGeminiLiveChatOptions = {}) {
       setError(`Failed to initialize live chat: ${(err as Error).message}`);
       return false;
     }
-  }, []);
+  }, [handleAudioVisualization]);
 
   // Auto-initialize if requested
   useEffect(() => {
