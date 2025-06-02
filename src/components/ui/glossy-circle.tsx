@@ -135,8 +135,8 @@ export const GlossyCircle: React.FC<GlossyCircleProps> = ({
               float speakingPulse = sin(iTime * 8.0 + speakingVolume * 15.0) * 0.5 + 0.8;
               col *= speakingPulse;
             } else {
-              // Fade to normal when no speech detected
-              col *= 0.7;
+              // Fade to normal when no speech detected - reduced dimming
+              col *= 0.9;
             }
           } else if (voiceState == 5.0) {
             // Error - red color

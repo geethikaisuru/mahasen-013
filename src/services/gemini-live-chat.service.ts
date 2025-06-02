@@ -5,6 +5,8 @@ import {
   Modality,
   Session,
   TurnCoverage,
+  StartSensitivity,
+  EndSensitivity,
 } from '@google/genai';
 
 export type LiveChatState = 'idle' | 'connecting' | 'connected' | 'listening' | 'speaking' | 'error';
@@ -63,8 +65,8 @@ export class GeminiLiveChatService {
   private readonly CHUNK_SIZE = 1024;
 
   private lastAudioSent = 0;
-  private readonly AUDIO_SEND_INTERVAL = 100; // Send audio every 100ms
-
+  private readonly AUDIO_SEND_INTERVAL = 50; // Reduced from 100ms to 50ms for faster response
+  
   constructor(config: LiveChatConfig) {
     this.apiKey = config.apiKey;
     this.model = config.model || "gemini-2.5-flash-preview-native-audio-dialog";
@@ -102,6 +104,16 @@ export class GeminiLiveChatService {
     try {
       console.log('Requesting microphone access...');
       
+      // Check if running in a secure context
+      if (!window.isSecureContext) {
+        throw new Error('MediaDevices API requires a secure context (HTTPS)');
+      }
+      
+      // Check if mediaDevices API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('MediaDevices API is not supported in this browser');
+      }
+      
       // Get user media with explicit constraints
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -116,7 +128,12 @@ export class GeminiLiveChatService {
       console.log('Microphone access granted');
 
       // Create audio context for input
-      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+      const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContext) {
+        throw new Error('AudioContext is not supported in this browser');
+      }
+      
+      this.audioContext = new AudioContext({
         sampleRate: this.SEND_SAMPLE_RATE,
       });
 
@@ -128,7 +145,7 @@ export class GeminiLiveChatService {
       console.log('Audio context created, state:', this.audioContext.state);
 
       // Create audio context for output
-      this.audioPlayer = new (window.AudioContext || (window as any).webkitAudioContext)({
+      this.audioPlayer = new AudioContext({
         sampleRate: this.RECEIVE_SAMPLE_RATE,
       });
 
@@ -150,22 +167,28 @@ export class GeminiLiveChatService {
 
       console.log('Microphone connected with gain boost:', this.gainNode.gain.value);
 
-      // Load and create audio worklet for processing
-      await this.audioContext.audioWorklet.addModule(
-        URL.createObjectURL(new Blob([this.getAudioWorkletCode()], { type: 'application/javascript' }))
-      );
+      // Check if AudioWorklet is supported
+      if (!this.audioContext.audioWorklet) {
+        console.warn('AudioWorklet is not supported in this browser, using ScriptProcessor fallback');
+        this.setupScriptProcessorFallback();
+      } else {
+        // Load and create audio worklet for processing
+        await this.audioContext.audioWorklet.addModule(
+          URL.createObjectURL(new Blob([this.getAudioWorkletCode()], { type: 'application/javascript' }))
+        );
 
-      this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
-      this.gainNode.connect(this.audioWorkletNode);
+        this.audioWorkletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
+        this.gainNode.connect(this.audioWorkletNode);
 
-      console.log('Audio worklet node created and connected with gain boost');
+        console.log('Audio worklet node created and connected with gain boost');
 
-      // Handle audio data from worklet
-      this.audioWorkletNode.port.onmessage = (event) => {
-        if (event.data.type === 'audio-data' && this.isRunning) {
-          this.sendAudioToGemini(event.data.audioData);
-        }
-      };
+        // Handle audio data from worklet
+        this.audioWorkletNode.port.onmessage = (event) => {
+          if (event.data.type === 'audio-data' && this.isRunning) {
+            this.sendAudioToGemini(event.data.audioData);
+          }
+        };
+      }
 
       this.startAudioVisualization();
       console.log('Audio initialization complete');
@@ -174,7 +197,60 @@ export class GeminiLiveChatService {
       console.error('Audio initialization error:', error);
       this.onError?.(new Error('Failed to initialize audio: ' + (error as Error).message));
       this.setState('error');
+      throw error; // Re-throw to allow the caller to handle it
     }
+  }
+
+  // Set up ScriptProcessor as a fallback for browsers without AudioWorklet
+  private setupScriptProcessorFallback(): void {
+    if (!this.audioContext || !this.gainNode) return;
+    
+    console.log('Setting up ScriptProcessor fallback');
+    
+    // Create script processor node (deprecated but widely supported)
+    const scriptProcessor = this.audioContext.createScriptProcessor(this.CHUNK_SIZE, 1, 1);
+    
+    // Connect gain node to script processor
+    this.gainNode.connect(scriptProcessor);
+    scriptProcessor.connect(this.audioContext.destination);
+    
+    // Buffer for collecting audio data
+    let buffer = new Float32Array(this.CHUNK_SIZE / 2);
+    let bufferIndex = 0;
+    
+    // Process audio data
+    scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+      if (!this.isRunning) return;
+      
+      const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
+      
+      for (let i = 0; i < inputData.length; i++) {
+        // Apply soft clipping to prevent distortion
+        let sample = inputData[i];
+        if (sample > 0.95) sample = 0.95;
+        if (sample < -0.95) sample = -0.95;
+        
+        buffer[bufferIndex] = sample;
+        bufferIndex++;
+        
+        if (bufferIndex >= buffer.length) {
+          // Convert to 16-bit PCM
+          const pcmData = new Int16Array(buffer.length);
+          for (let j = 0; j < buffer.length; j++) {
+            const normalizedSample = Math.max(-1, Math.min(1, buffer[j]));
+            pcmData[j] = normalizedSample < 0 ? normalizedSample * 0x8000 : normalizedSample * 0x7FFF;
+          }
+          
+          // Send audio data to Gemini
+          this.sendAudioToGemini(pcmData.buffer);
+          
+          bufferIndex = 0;
+        }
+      }
+    };
+    
+    // Store reference to script processor to prevent garbage collection
+    (this as any).scriptProcessor = scriptProcessor;
   }
 
   // Audio worklet processor code
@@ -183,7 +259,7 @@ export class GeminiLiveChatService {
       class AudioProcessor extends AudioWorkletProcessor {
         constructor() {
           super();
-          this.bufferSize = ${this.CHUNK_SIZE};
+          this.bufferSize = ${this.CHUNK_SIZE / 2}; // Reduced buffer size for lower latency
           this.buffer = new Float32Array(this.bufferSize);
           this.bufferIndex = 0;
           this.isRunning = false;
@@ -258,7 +334,7 @@ export class GeminiLiveChatService {
           sum += normalized * normalized;
         }
         const rms = Math.sqrt(sum / timeData.length);
-        const volume = Math.min(rms * 3, 1); // Adjusted for boosted input - reduced from 5 to 3
+        const volume = Math.min(rms * 3, 1); // Adjusted for boosted input
 
         // Detect speech activity during AI playback
         let speakingVolume = 0;
@@ -278,18 +354,11 @@ export class GeminiLiveChatService {
           // Smooth the speech volume to avoid jitter
           this.currentSpeechVolume = this.currentSpeechVolume * 0.7 + speakingVolume * 0.3;
           speakingVolume = this.currentSpeechVolume;
-          
-          // Debug logging to help with testing
-          if (speakingVolume > 0.05) {
-            console.log('🎤 Speech detected:', speakingVolume.toFixed(3));
-          }
         } else {
           // Gradually fade out speech volume when not speaking
           this.currentSpeechVolume = this.currentSpeechVolume * 0.9;
           speakingVolume = this.currentSpeechVolume;
         }
-
-        //console.log('Audio volume:', volume.toFixed(3)); // Debug logging
 
         this.onAudioVisualization?.({
           volume: volume,
@@ -320,6 +389,16 @@ export class GeminiLiveChatService {
             text: this.systemInstruction,
           }]
         },
+        // Add proper VAD configuration
+        realtimeInputConfig: {
+          automaticActivityDetection: {
+            disabled: false, // Use automatic VAD
+            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_LOW,
+            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+            prefixPaddingMs: 300,
+            silenceDurationMs: 1000, // 1 second of silence before considering speech ended
+          }
+        }
       };
 
       console.debug('Attempting to connect to Gemini Live API...');
@@ -344,7 +423,7 @@ export class GeminiLiveChatService {
             }, 100);
           },
           onmessage: (message: LiveServerMessage) => {
-            console.log('Raw message received:', message);
+            console.log('📨 Received message from Gemini at:', Date.now());
             this.responseQueue.push(message);
             this.handleModelMessage(message);
           },
@@ -380,22 +459,28 @@ export class GeminiLiveChatService {
   // Handle messages from Gemini
   private handleModelMessage(message: LiveServerMessage) {
     try {
-      console.log('Received message from Gemini:', message);
+      console.log('📨 Processing message from Gemini at:', Date.now());
       
       // Handle server content (text and audio responses)
       if (message.serverContent?.modelTurn?.parts) {
         const parts = message.serverContent.modelTurn.parts;
         
+        // Set state to speaking when we start receiving AI response
+        if (this.state === 'listening') {
+          console.log('🎤➡️🗣️ Transitioning from listening to speaking');
+          this.setState('speaking');
+        }
+        
         for (const part of parts) {
           // Handle text responses
           if (part.text) {
-            console.log('Gemini text response:', part.text);
+            console.log('📝 Gemini text response:', part.text);
             this.onResponse?.(part.text);
           }
 
           // Handle audio responses  
           if (part.inlineData && part.inlineData.data) {
-            console.log('Gemini audio response received');
+            console.log('🎵 Gemini audio response received at:', Date.now());
             this.handleAudioResponse(part.inlineData);
           }
         }
@@ -403,23 +488,27 @@ export class GeminiLiveChatService {
 
       // Handle generation completion
       if (message.serverContent?.generationComplete) {
-        console.log('Generation complete - playing accumulated audio');
+        console.log('✅ Generation complete - playing accumulated audio at:', Date.now());
         // Play all accumulated audio when generation is finished
         this.playAccumulatedAudio();
       }
 
       // Handle turn completion - this indicates the AI finished its response
       if (message.serverContent?.turnComplete) {
-        console.log('Turn complete, AI finished speaking');
+        console.log('🏁 Turn complete, AI finished speaking at:', Date.now());
         // Ensure audio is played if not already started
         if (this.accumulatedAudioData.length > 0 && !this.isPlayingAudio) {
           this.playAccumulatedAudio();
+        } else if (this.accumulatedAudioData.length === 0) {
+          // No audio to play, transition back to listening immediately
+          console.log('🗣️➡️🎤 No audio to play, transitioning back to listening');
+          this.setState('listening');
         }
       }
 
       // Handle interruptions
       if (message.serverContent?.interrupted) {
-        console.log('Response was interrupted');
+        console.log('⚠️ Response was interrupted at:', Date.now());
         // Stop current audio playback immediately and clear accumulated data
         if (this.currentAudioSource) {
           this.currentAudioSource.stop();
@@ -432,7 +521,7 @@ export class GeminiLiveChatService {
 
       // Handle transcriptions (user speech recognition)
       if (message.serverContent?.inputTranscription?.text) {
-        console.log('User speech transcription:', message.serverContent.inputTranscription.text);
+        console.log('🎤 User speech transcription at:', Date.now(), ':', message.serverContent.inputTranscription.text);
         this.onTranscript?.(message.serverContent.inputTranscription.text);
       }
 
@@ -528,26 +617,21 @@ export class GeminiLiveChatService {
       this.isPlayingAudio = true;
       this.setState('speaking');
       
+      // Set up completion handler
       source.onended = () => {
-        console.log('Audio playback finished');
-        this.currentAudioSource = null;
+        console.log('🔊 Audio playback completed, transitioning back to listening');
         this.isPlayingAudio = false;
-        
-        // Clear accumulated audio data for next response
-        this.accumulatedAudioData = new Int16Array(0);
-        
-        if (this.state === 'speaking') {
-          this.setState('listening');
-        }
+        this.currentAudioSource = null;
+        this.accumulatedAudioData = new Int16Array(0); // Clear accumulated data
+        this.setState('listening');
       };
       
       source.start();
-      console.log('Started audio playback');
+      console.log('🔊 Audio playback started');
       
     } catch (error) {
       console.error('Error playing accumulated audio:', error);
       this.isPlayingAudio = false;
-      this.accumulatedAudioData = new Int16Array(0);
       this.setState('listening');
     }
   }
@@ -685,6 +769,18 @@ export class GeminiLiveChatService {
     }
   }
 
+  // Send audio stream end signal when microphone is paused
+  private sendAudioStreamEnd() {
+    if (this.session && this.isRunning) {
+      try {
+        this.session.sendRealtimeInput({ audioStreamEnd: true });
+        console.log('Audio stream end signal sent to Gemini');
+      } catch (error) {
+        console.error('Error sending audio stream end:', error);
+      }
+    }
+  }
+
   // Convert ArrayBuffer to base64
   private arrayBufferToBase64(buffer: ArrayBuffer): string {
     const bytes = new Uint8Array(buffer);
@@ -700,13 +796,22 @@ export class GeminiLiveChatService {
     try {
       console.log('Starting conversation...');
       
-      await this.initializeAudio();
+      // Initialize audio first
+      try {
+        await this.initializeAudio();
+      } catch (error) {
+        console.error('Audio initialization failed:', error);
+        this.onError?.(new Error('Audio initialization failed: ' + (error as Error).message));
+        // Don't return here, still try to connect to Gemini for text-only mode
+      }
+      
+      // Connect to Gemini
       await this.connectToGemini();
       
       this.isRunning = true;
       this.setState('listening');
       
-      // Start audio processing
+      // Start audio processing if audio was successfully initialized
       if (this.audioWorkletNode) {
         console.log('Starting audio worklet...');
         this.audioWorkletNode.port.postMessage({ type: 'start' });
@@ -715,7 +820,7 @@ export class GeminiLiveChatService {
         await new Promise(resolve => setTimeout(resolve, 200));
         console.log('Audio worklet started');
       } else {
-        console.error('Audio worklet node not available');
+        console.log('Audio worklet not available - running in text-only mode');
       }
       
       console.log('Conversation started successfully');
@@ -732,6 +837,9 @@ export class GeminiLiveChatService {
     try {
       console.log('Stopping conversation...');
       this.isRunning = false;
+
+      // Send audio stream end signal before stopping
+      this.sendAudioStreamEnd();
 
       // Stop audio processing
       if (this.audioWorkletNode) {
@@ -778,6 +886,12 @@ export class GeminiLiveChatService {
     if (this.audioWorkletNode) {
       this.audioWorkletNode.disconnect();
       this.audioWorkletNode = null;
+    }
+    
+    // Clean up script processor fallback if it exists
+    if ((this as any).scriptProcessor) {
+      (this as any).scriptProcessor.disconnect();
+      (this as any).scriptProcessor = null;
     }
 
     if (this.microphone) {
