@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect, useTransition, useCallback } from "react";
@@ -18,8 +17,6 @@ import { Loader2, ArrowLeft, AlertTriangle, Mail as MailIcon, Link as LinkIcon }
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
-const initialUserContext = "I am a busy professional. I prefer concise and direct communication. Today is " + new Date().toLocaleDateString() + ".";
-
 export default function EmailDetailPage() {
   const { currentUser, googleAccessToken, loading: authLoading, handleSignIn } = useAuth();
   const params = useParams();
@@ -32,7 +29,6 @@ export default function EmailDetailPage() {
   const [isFetchingEmail, setIsFetchingEmail] = useState(true);
   const [generatedDrafts, setGeneratedDrafts] = useState<string[]>([]);
   const [activeReplyContent, setActiveReplyContent] = useState("");
-  const [userContextForAI, setUserContextForAI] = useState(initialUserContext);
 
   const [isGeneratingDrafts, startDraftGenerationTransition] = useTransition();
   const [isRegenerating, startRegenerationTransition] = useTransition();
@@ -75,20 +71,53 @@ export default function EmailDetailPage() {
     }
   }, [fetchAndSetEmailDetails, currentUser, googleAccessToken, authLoading]);
 
+  const getPersonalContextForUser = async (): Promise<string> => {
+    if (!currentUser?.uid) {
+      console.warn("No current user for personal context");
+      return "I am a busy professional. I prefer concise and direct communication. Today is " + new Date().toLocaleDateString() + ".";
+    }
+
+    try {
+      const response = await fetch(`/api/personal-context/get-for-draft?userId=${encodeURIComponent(currentUser.uid)}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch personal context: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.success && data.userContext) {
+        return data.userContext;
+      } else {
+        console.warn("API returned unsuccessful response:", data);
+        return "I am a busy professional. I prefer concise and direct communication. Today is " + new Date().toLocaleDateString() + ".";
+      }
+    } catch (error) {
+      console.error("Error fetching personal context via API:", error);
+      // Fallback if API call fails
+      return "I am a busy professional. I prefer concise and direct communication. Today is " + new Date().toLocaleDateString() + ".";
+    }
+  };
+
   const handleGenerateInitialDrafts = () => {
     if (!emailDetails || !emailDetails.body) {
       toast({ title: "Error", description: "Email content not fully loaded or empty.", variant: "destructive" });
       return;
     }
     startDraftGenerationTransition(async () => {
-      const input: GenerateEmailDraftsInput = { emailContent: emailDetails.body, userContext: userContextForAI };
+      const userContext = await getPersonalContextForUser();
+      const input: GenerateEmailDraftsInput = { emailContent: emailDetails.body, userContext };
       const result = await handleGenerateEmailDrafts(input);
-      if ("error" in result || !result.drafts) {
+      if ("error" in result || !("drafts" in result) || !result.drafts) {
         toast({ title: "Error Generating Drafts", description: (result as any).error || "Failed to generate drafts.", variant: "destructive" });
-        setGeneratedDrafts(result.drafts || ["Error generating draft.", "Error generating draft.", "Error generating draft."]);
+        setGeneratedDrafts(["Error generating draft.", "Error generating draft.", "Error generating draft."]);
       } else {
         setGeneratedDrafts(result.drafts as [string, string, string]);
-        toast({ title: "Drafts Generated", description: "Successfully generated 3 email drafts." });
+        toast({ title: "Drafts Generated", description: "Successfully generated 3 email drafts using your personal context." });
       }
     });
   };
@@ -111,15 +140,16 @@ export default function EmailDetailPage() {
       return;
     }
     startRegenerationTransition(async () => {
-      const input: GenerateEmailDraftsInput = { emailContent: emailDetails.body, userContext: userContextForAI };
+      const userContext = await getPersonalContextForUser();
+      const input: GenerateEmailDraftsInput = { emailContent: emailDetails.body, userContext };
       const result = await handleRegenerateEmailDrafts(input);
-       if ("error" in result || !result.draftReplies) {
+       if ("error" in result || !("draftReplies" in result) || !result.draftReplies) {
         toast({ title: "Error Regenerating Drafts", description: (result as any).error || "Failed to regenerate drafts.", variant: "destructive" });
-        const errorDrafts = (result.draftReplies as [string,string,string]) || generatedDrafts.map(() => "Error regenerating.") as [string,string,string];
+        const errorDrafts = generatedDrafts.map(() => "Error regenerating.") as [string,string,string];
         setGeneratedDrafts(errorDrafts.slice(0,3));
       } else {
         setGeneratedDrafts(result.draftReplies.slice(0,3) as [string, string, string]);
-        toast({ title: "Drafts Regenerated", description: "Successfully regenerated 3 email drafts." });
+        toast({ title: "Drafts Regenerated", description: "Successfully regenerated 3 email drafts using your personal context." });
         if (result.draftReplies.length > 0) {
           setActiveReplyContent(result.draftReplies[0]);
         }
@@ -262,8 +292,6 @@ export default function EmailDetailPage() {
               <MainReplyComposer
                 replyContent={activeReplyContent}
                 onReplyContentChange={setActiveReplyContent}
-                userContext={userContextForAI}
-                onUserContextChange={setUserContextForAI}
                 onSend={handleSendReply}
                 onRegenerate={handleRegenerateInComposer}
                 isSending={isSendingReply}

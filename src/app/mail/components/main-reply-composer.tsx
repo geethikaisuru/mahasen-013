@@ -1,4 +1,3 @@
-
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -10,8 +9,6 @@ import { Loader2, Send, RefreshCw } from "lucide-react";
 interface MainReplyComposerProps {
   replyContent: string;
   onReplyContentChange: (content: string) => void;
-  userContext: string;
-  onUserContextChange: (context: string) => void;
   onSend: () => void;
   onRegenerate: () => void;
   isSending: boolean;
@@ -21,8 +18,6 @@ interface MainReplyComposerProps {
 export function MainReplyComposer({
   replyContent,
   onReplyContentChange,
-  userContext,
-  onUserContextChange,
   onSend,
   onRegenerate,
   isSending,
@@ -41,17 +36,7 @@ export function MainReplyComposer({
             value={replyContent}
             onChange={(e) => onReplyContentChange(e.target.value)}
             placeholder="Your email reply will appear here. Edit as needed."
-            className="w-full mt-1 min-h-[200px]" // Added w-full
-          />
-        </div>
-        <div>
-          <Label htmlFor="userContextTextarea" className="text-base font-semibold">Personal Context (for AI)</Label>
-          <Textarea
-            id="userContextTextarea"
-            value={userContext}
-            onChange={(e) => onUserContextChange(e.target.value)}
-            placeholder="Provide context for the AI..."
-            className="w-full mt-1 min-h-[100px]" // Added w-full
+            className="w-full mt-1 min-h-[200px]"
           />
         </div>
         <div className="flex flex-col sm:flex-row gap-2 justify-end">
